@@ -1,5 +1,4 @@
 import os.path
-import pickle # For older versions of the library, token.pickle was common
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -11,6 +10,7 @@ import re
 from datetime import datetime
 from email.message import EmailMessage
 from dateutil import parser, tz
+import csv
 
 # If modifying these SCOPES, delete the file token.json.
 SCOPES = ['https://www.googleapis.com/auth/gmail.readonly'] # Read-only access is sufficient for testing labels
@@ -18,7 +18,15 @@ SCOPES = ['https://www.googleapis.com/auth/gmail.readonly'] # Read-only access i
 TOKEN_FILE = 'token.json' # Stores the user's access and refresh tokens
 CREDENTIALS_FILE = 'credentials.json' # Your OAuth 2.0 credentials
 
-DATASET_DIR = 'datasets/horse_photo_extractor' # Main directory for storing horse photos
+# Update the constant to use a single folder
+DATA_ROOT = '%s/google-drive/horseID Project/data' % os.environ.get('HOME')
+DATASET_DIR = '%s/horse_photos' % DATA_ROOT
+
+# Add new constant for manifest file
+MANIFEST_FILE = '%s/horse_photos_manifest.csv' % DATA_ROOT
+
+# Add at the top with other constants
+REPLACE_EXISTING = False  # Set to True to replace existing files
 
 def gmail_authenticate():
     """Shows basic usage of the Gmail API.
@@ -91,12 +99,6 @@ def get_horse_emails(service, query="subject:fall OR subject:spring OR subject:s
     except Exception as e:
         print(f"Error fetching emails: {e}")
         return []
-
-def create_horse_folder(horse_name):
-    """Create a folder for the horse if it doesn't exist"""
-    folder_path = os.path.join(DATASET_DIR, horse_name)
-    os.makedirs(folder_path, exist_ok=True)
-    return folder_path
 
 def extract_horse_name(subject):
     """Extract horse name from email subject"""
@@ -173,8 +175,8 @@ def extract_oldest_date(message):
     oldest_date = min(dates) if dates else internal_date
     return oldest_date.strftime('%Y%m%d')  # Format changed to date only
 
-def save_attachments(service, message_id, horse_folder, horse_name):
-    """Save image attachments from an email to the horse's folder"""
+def save_attachments(service, message_id, horse_name):
+    """Save image attachments without creating manifest entries"""
     try:
         # Get the full message
         message = service.users().messages().get(userId='me', id=message_id, format='full').execute()
@@ -183,37 +185,37 @@ def save_attachments(service, message_id, horse_folder, horse_name):
         email_date = extract_oldest_date(message)
         
         def process_parts(parts):
-            """Helper function to recursively process message parts"""
             for part in parts:
-                # If this part has nested parts, process them
                 if 'parts' in part:
                     process_parts(part['parts'])
                     continue
                 
-                # Check if this part has a filename and is an image
                 if part.get('filename'):
                     if any(part['filename'].lower().endswith(ext) for ext in ['.jpg', '.jpeg', '.png', '.gif']):
-                        if 'body' in part and 'attachmentId' in part['body']:
-                            att_id = part['body']['attachmentId']
+                        # Create filename
+                        filename = part['filename']
+                        new_filename = f"{horse_name}-{email_date}-{message_id}-{filename}"
+                        filepath = os.path.join(DATASET_DIR, new_filename)
+                        
+                        # Skip if file exists and not replacing
+                        if os.path.exists(filepath) and not REPLACE_EXISTING:
+                            print(f"Skipping existing file: {filepath}")
+                            continue
                             
-                            # Get the attachment
+                        # Download and save attachment
+                        try:
+                            att_id = part['body']['attachmentId']
                             att = service.users().messages().attachments().get(
                                 userId='me', messageId=message_id, id=att_id).execute()
-                            
-                            # Decode the attachment data
                             file_data = base64.urlsafe_b64decode(att['data'].encode('UTF-8'))
                             
-                            # Create filename with email timestamp instead of current time
-                            filename = part['filename']
-                            new_filename = f"{horse_name}-{email_date}-{filename}"
-                            filepath = os.path.join(horse_folder, new_filename)
-                            
-                            # Save the file
                             with open(filepath, 'wb') as f:
                                 f.write(file_data)
-                            print(f"Saved: {filepath}")
+                            print(f"{'Replaced' if os.path.exists(filepath) else 'Saved'}: {filepath}")
+                        except Exception as e:
+                            print(f"Error saving attachment {filename}: {e}")
         
-        # Get message payload and start processing
+        # Process message payload
         payload = message.get('payload', {})
         if 'parts' in payload:
             process_parts(payload['parts'])
@@ -223,23 +225,52 @@ def save_attachments(service, message_id, horse_folder, horse_name):
     except Exception as e:
         print(f"Error processing message {message_id}: {e}")
 
+def create_manifest():
+    """Create manifest by scanning photos directory"""
+    manifest_rows = []
+    
+    # Scan all files in dataset directory
+    for filename in sorted(os.listdir(DATASET_DIR)):  # Sort filenames alphabetically
+        if any(filename.lower().endswith(ext) for ext in ['.jpg', '.jpeg', '.png', '.gif']):
+            # Parse filename components
+            # Expected format: {horse_name}-{date}-{message_id}-{original_filename}
+            try:
+                parts = filename.split('-', 3)
+                if len(parts) == 4:
+                    horse_name = parts[0]
+                    email_date = parts[1]
+                    message_id = parts[2]
+                    
+                    manifest_rows.append({
+                        'horse_name': horse_name,
+                        'email_date': email_date,
+                        'message_id': message_id,
+                        'filename': filename
+                    })
+            except Exception as e:
+                print(f"Error parsing filename {filename}: {e}")
+    
+    # Write manifest file
+    if manifest_rows:
+        with open(MANIFEST_FILE, 'w', newline='') as f:
+            writer = csv.DictWriter(f, fieldnames=['horse_name', 'email_date', 'message_id', 'filename'])
+            writer.writeheader()
+            # Sort manifest rows by filename before writing
+            manifest_rows.sort(key=lambda x: x['filename'])
+            writer.writerows(manifest_rows)
+        print(f"\nManifest file created: {MANIFEST_FILE}")
+
 def main():
-    """
-    Authenticates with Gmail and lists the user's labels.
-    """
-    print("Attempting to authenticate with Gmail...")
-    service = gmail_authenticate()
-
-    if service:
-        print("\nSuccessfully authenticated and Gmail service created.")
-    else:
-        print("\nOAuth 2.0 setup test failed: Could not authenticate or create Gmail service.")
-
     """Main function to process horse emails and save images"""
-    # Create main dataset directory
-    os.makedirs(DATASET_DIR, exist_ok=True)
+    service = gmail_authenticate()
+    if not service:
+        return
 
-    # Get relevant emails
+    # Create directories
+    os.makedirs(DATASET_DIR, exist_ok=True)
+    os.makedirs(os.path.dirname(MANIFEST_FILE), exist_ok=True)
+
+    # Get and process emails
     messages = get_horse_emails(service)
     if not messages:
         print("No matching emails found")
@@ -247,10 +278,11 @@ def main():
 
     print(f"Found {len(messages)} emails to process")
     
+    # Download photos
     for message in messages:
         try:
-            # Get full message details
-            msg = service.users().messages().get(userId='me', id=message['id'], format='metadata',
+            msg = service.users().messages().get(userId='me', id=message['id'], 
+                                               format='metadata',
                                                metadataHeaders=['Subject']).execute()
             subject = next((header['value'] for header in msg['payload']['headers'] 
                           if header['name'] == 'Subject'), None)
@@ -258,15 +290,15 @@ def main():
             if subject:
                 horse_name = extract_horse_name(subject)
                 if horse_name:
-                    if horse_name != "Moe":
-                        continue
-                    horse_folder = create_horse_folder(horse_name)
                     print(f"\nProcessing email: {subject}")
-                    save_attachments(service, message['id'], horse_folder, horse_name)
+                    save_attachments(service, message['id'], horse_name)
                 else:
                     print(f"Skipping email with invalid subject format: {subject}")
         except Exception as e:
             print(f"Error processing message: {e}")
+
+    # Create manifest after all photos are downloaded
+    create_manifest()
 
 if __name__ == '__main__':
     main()
