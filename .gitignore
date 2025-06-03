@@ -3,3 +3,4 @@ horse_dataset*
 .DS_Store
 *.json
 datasets
+*.jpg
