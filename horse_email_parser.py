@@ -504,14 +504,21 @@ def read_existing_manifest():
     if os.path.exists(MANIFEST_FILE):
         try:
             # Specify dtype to avoid mixed type warnings if columns are sometimes empty
-            return pd.read_csv(MANIFEST_FILE, dtype={'horse_name': str, 'email_date': str, 'message_id': str, 'filename': str, 'status': str})
+            return pd.read_csv(MANIFEST_FILE, dtype={
+                'horse_name': str, 
+                'email_date': str, 
+                'message_id': str, 
+                'filename': str, 
+                'status': str,
+                'date_added': str
+            })
         except pd.errors.EmptyDataError:
             print(f"Manifest file '{MANIFEST_FILE}' is empty. A new one will be created if images are processed.")
-            return pd.DataFrame(columns=['horse_name', 'email_date', 'message_id', 'filename', 'status'])
+            return pd.DataFrame(columns=['horse_name', 'email_date', 'message_id', 'filename', 'status', 'date_added'])
         except Exception as e:
             print(f"Error reading manifest file {MANIFEST_FILE}: {e}")
             return None # Indicates an issue reading an existing manifest
-    return pd.DataFrame(columns=['horse_name', 'email_date', 'message_id', 'filename', 'status']) # Return empty df if no file
+    return pd.DataFrame(columns=['horse_name', 'email_date', 'message_id', 'filename', 'status', 'date_added']) # Return empty df if no file
 
 
 def create_manifest():
@@ -523,6 +530,13 @@ def create_manifest():
 
     # Convert to dictionary for easier management if it's not None
     # key: filename, value: dict of row data
+    # Replace NaN with empty string in status column before converting to dict
+    current_manifest_df['status'] = current_manifest_df['status'].fillna('')
+    # Add current date for any missing date_added values
+    if 'date_added' not in current_manifest_df.columns:
+        current_manifest_df['date_added'] = datetime.now().strftime('%Y-%m-%d')
+    else:
+        current_manifest_df['date_added'] = current_manifest_df['date_added'].fillna(datetime.now().strftime('%Y-%m-%d'))
     existing_entries = {row['filename']: row.to_dict() for _, row in current_manifest_df.iterrows()}
     
     processed_filenames_in_dir = set()
@@ -539,20 +553,27 @@ def create_manifest():
                         if len(parts) == 4:
                             horse_name, email_date, message_id, _ = parts[0], parts[1], parts[2], parts[3]
                             new_entry = {
-                                'horse_name': horse_name, 'email_date': email_date,
-                                'message_id': message_id, 'filename': filename_in_dir, 'status': ''
+                                'horse_name': horse_name, 
+                                'email_date': email_date,
+                                'message_id': message_id, 
+                                'filename': filename_in_dir, 
+                                'status': '',
+                                'date_added': datetime.now().strftime('%Y-%m-%d')  # Add current date for new entries
                             }
                             existing_entries[filename_in_dir] = new_entry
                             print(f"Added new file to manifest: {filename_in_dir}")
                         else:
                             print(f"Could not parse metadata from new filename: {filename_in_dir}. Adding with minimal info.")
                             existing_entries[filename_in_dir] = {
-                                'horse_name': 'Unknown', 'email_date': 'Unknown',
-                                'message_id': 'Unknown', 'filename': filename_in_dir, 'status': ''
+                                'horse_name': 'Unknown', 
+                                'email_date': 'Unknown',
+                                'message_id': 'Unknown', 
+                                'filename': filename_in_dir, 
+                                'status': '',
+                                'date_added': datetime.now().strftime('%Y-%m-%d')  # Add current date for new entries
                             }
                     except Exception as e:
                         print(f"Error parsing new filename {filename_in_dir}: {e}")
-                # If file is in existing_entries, its data is already there, no need to update unless new logic is added
 
     # Remove entries from manifest if their file no longer exists in DATASET_DIR
     manifest_filenames_to_remove = [fname for fname in existing_entries if fname not in processed_filenames_in_dir]
@@ -567,11 +588,13 @@ def create_manifest():
     
     try:
         with open(MANIFEST_FILE, 'w', newline='') as f:
-            fieldnames = ['horse_name', 'email_date', 'message_id', 'filename', 'status']
+            fieldnames = ['horse_name', 'email_date', 'message_id', 'filename', 'date_added', 'status']
             writer = csv.DictWriter(f, fieldnames=fieldnames)
             writer.writeheader()
             # Ensure all rows have all fieldnames, providing defaults if missing
             for row_dict in final_manifest_rows:
+                if 'date_added' not in row_dict:
+                    row_dict['date_added'] = datetime.now().strftime('%Y-%m-%d')
                 writer.writerow({field: row_dict.get(field, "") for field in fieldnames})
         print(f"Manifest file updated: {MANIFEST_FILE}")
     except Exception as e:
@@ -595,7 +618,8 @@ def update_manifest_for_email(horse_name_to_save, email_date, message_id, manife
             'email_date': email_date,
             'message_id': message_id,
             'filename': manifest_filename,
-            'status': entry.get('status', '') # Preserve existing status if any, else empty
+            'status': entry.get('status', ''), # Preserve existing status if any, else empty
+            'date_added': entry.get('date_added', datetime.now().strftime('%Y-%m-%d')) # Preserve existing date or add new
         })
         manifest_dict[manifest_filename] = entry
     
@@ -604,11 +628,11 @@ def update_manifest_for_email(horse_name_to_save, email_date, message_id, manife
     
     try:
         with open(MANIFEST_FILE, 'w', newline='') as f:
-            fieldnames = ['horse_name', 'email_date', 'message_id', 'filename', 'status']
+            fieldnames = ['horse_name', 'email_date', 'message_id', 'filename', 'date_added', 'status']
             writer = csv.DictWriter(f, fieldnames=fieldnames)
             writer.writeheader()
             for row_dict in updated_manifest_rows:
-                 writer.writerow({field: row_dict.get(field, "") for field in fieldnames})
+                writer.writerow({field: row_dict.get(field, "") for field in fieldnames})
         print(f"Manifest updated for email {message_id}, horse {horse_name_to_save}.")
     except Exception as e:
         print(f"Error writing updated manifest after email processing: {e}")
