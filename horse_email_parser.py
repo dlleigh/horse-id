@@ -1,3 +1,4 @@
+import os
 import os.path
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
@@ -32,16 +33,13 @@ TOKEN_FILE = 'token.json'
 CREDENTIALS_FILE = 'credentials.json'
 
 DATA_ROOT = os.environ.get('HORSE_ID_DATA_ROOT', '%s/google-drive/horseID Project/data' % os.environ.get('HOME', '.'))
-#DATASET_DIR = '%s/horse_photos' % DATA_ROOT
-DATASET_DIR = '%s/horse_photos' % "sandbox"
-#MANIFEST_FILE = '%s/horse_photos_manifest.csv' % DATA_ROOT
-MANIFEST_FILE = '%s/horse_photos_manifest.csv' % "sandbox"
+DATASET_DIR = '%s/horse_photos' % DATA_ROOT
+MANIFEST_FILE = '%s/horse_photos_manifest.csv' % DATA_ROOT
 CALIBRATION_DIR = '%s/calibrations' % DATA_ROOT # For loading .pkl calibration files
-#TEMP_DIR = '%s/tmp' % DATA_ROOT
-TEMP_DIR = '%s/tmp' % "sandbox"
+TEMP_DIR = '%s/tmp' % DATA_ROOT
 
 REPLACE_EXISTING = False
-SIMILARITY_THRESHOLD = 0.7  # ! IMPORTANT: Tune this threshold based on validation
+SIMILARITY_THRESHOLD = 0.9  # ! IMPORTANT: Tune this threshold based on validation
 IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.gif']
 
 # --- Global variables for the WildFusion system ---
@@ -103,10 +101,10 @@ def gmail_authenticate():
         print("Failed to obtain valid credentials.")
         return None
 
-def get_horse_emails(service, query="subject:fall OR subject:spring OR subject:summer OR subject:winter label:\"Horse Photos\""):
-    """Fetch emails that likely contain horse photos based on keywords and label"""
+def get_horse_emails(service):
+    """Fetch all emails"""
     try:
-        results = service.users().messages().list(userId='me', q=query).execute()
+        results = service.users().messages().list(userId='me', q='').execute()
         messages = results.get('messages', [])
         return messages
     except Exception as e:
@@ -320,23 +318,32 @@ def check_horse_similarity(new_image_paths: list, existing_horse_image_paths: li
             print("Similarity matrix computation failed or returned empty.")
             return False
 
-        avg_sim_scores_for_queries = []
-        if similarity_matrix.ndim == 2 and similarity_matrix.shape[0] > 0 and similarity_matrix.shape[1] > 0:
+        max_sim_scores_for_queries = []
+        # Convert 1D array to 2D array with single row if needed
+        if similarity_matrix.ndim == 1:
+            similarity_matrix = similarity_matrix.reshape(1, -1)
+            new_image_paths = [new_image_paths[0]]  # Adjust paths list to match matrix shape
+            
+        if similarity_matrix.shape[0] > 0 and similarity_matrix.shape[1] > 0:
             for i in range(similarity_matrix.shape[0]):
-                avg_sim_for_this_query = np.mean(similarity_matrix[i, :])
-                avg_sim_scores_for_queries.append(avg_sim_for_this_query)
-        elif similarity_matrix.ndim == 1 and similarity_matrix.size > 0 : # Only one query image
-             avg_sim_scores_for_queries.append(np.mean(similarity_matrix))
+                query_scores = similarity_matrix[i, :]
+                max_sim_for_this_query = np.max(query_scores)
+                print(f"\nScores for new image {os.path.basename(new_image_paths[i])}:")
+                print(f"  Max similarity: {max_sim_for_this_query:.4f}")
+                # print("  Individual scores vs existing images:")
+                # for j, score in enumerate(query_scores):
+                #     print(f"    vs {os.path.basename(existing_horse_image_paths[j])}: {score:.4f}")
+                max_sim_scores_for_queries.append(max_sim_for_this_query)
         else:
             print(f"Unexpected similarity matrix shape or size: {similarity_matrix.shape if hasattr(similarity_matrix, 'shape') else 'N/A'}")
             return False
             
-        if not avg_sim_scores_for_queries:
+        if not max_sim_scores_for_queries:
             print("No similarity scores could be aggregated for queries.")
             return False
-        final_average_similarity = np.mean(avg_sim_scores_for_queries)
+        final_average_similarity = np.mean(max_sim_scores_for_queries)
 
-        print(f"  Computed average similarity: {final_average_similarity:.4f} (Threshold: {threshold})")
+        print(f"\nFinal average max similarity across all images: {final_average_similarity:.4f} (Threshold: {threshold})")
         return final_average_similarity >= threshold
     except Exception as e:
         print(f"Error during similarity check: {e}")
@@ -377,7 +384,7 @@ def save_attachments(service, message_id, horse_name_from_subject):
                                 userId='me', messageId=msg_id, id=att_id).execute()
                             file_data = base64.urlsafe_b64decode(att['data'].encode('UTF-8'))
                             with open(temp_path, 'wb') as f: f.write(file_data)
-                            downloaded_temp_paths.append(temp_path)
+                            downloaded_temp_paths.append((temp_path, original_filename))  # Store tuple of (path, original_name)
                         except Exception as e:
                             print(f"Error downloading attachment {original_filename} from message {msg_id}: {e}")
         
@@ -395,16 +402,49 @@ def save_attachments(service, message_id, horse_name_from_subject):
         final_horse_name_for_saving = base_name_from_email
 
         if base_name_from_email in existing_horses_dict:
-            print(f"Base name '{base_name_from_email}' exists. Checking similarity against known individuals...")
+            print(f"Base name '{base_name_from_email}' exists. Checking for duplicate images and similarity...")
             match_found_with_existing_suffix = False
-            # Sort suffixes to check in a consistent order (e.g., _1, _2, ...)
+            
+            # Filter out any duplicate images based on date and filename
+            filtered_temp_paths = []
+            for temp_path, original_filename in downloaded_temp_paths:
+                is_duplicate = False
+                # Extract just the image number/name part (e.g., "IMG_5103" from "IMG_5103.jpg")
+                image_base_name = os.path.splitext(original_filename)[0]
+                
+                # Check against all existing images for this horse
+                for suffix, existing_paths in existing_horses_dict[base_name_from_email].items():
+                    for existing_path in existing_paths:
+                        existing_filename = os.path.basename(existing_path)
+                        # Parse the date from the existing filename (format: horsename-YYYYMMDD-messageid-originalname)
+                        parts = existing_filename.split('-')
+                        if len(parts) >= 2:
+                            existing_date = parts[1]
+                            existing_image_name = os.path.splitext(parts[-1])[0]  # Get the original image name without extension
+                            
+                            if existing_date == email_date and existing_image_name == image_base_name:
+                                print(f"Skipping duplicate image: {original_filename} (already exists with date {email_date})")
+                                is_duplicate = True
+                                break
+                    if is_duplicate:
+                        break
+                        
+                if not is_duplicate:
+                    filtered_temp_paths.append(temp_path)
+            
+            # Update downloaded_temp_paths to only include non-duplicate images
+            if not filtered_temp_paths:
+                print("All images are duplicates. Skipping similarity check.")
+                return
+            
+            # Continue with similarity check using filtered paths
             sorted_suffixes = sorted(existing_horses_dict[base_name_from_email].keys(), key=lambda x: int(x) if x.isdigit() else float('inf'))
 
             for suffix in sorted_suffixes:
                 current_full_name = f"{base_name_from_email}_{suffix}" if suffix != '1' else base_name_from_email
                 existing_image_paths_for_suffix = existing_horses_dict[base_name_from_email][suffix]
-                print(f"  Comparing {len(downloaded_temp_paths)} new images with {len(existing_image_paths_for_suffix)} images of '{current_full_name}'...")
-                if check_horse_similarity(downloaded_temp_paths, existing_image_paths_for_suffix):
+                print(f"  Comparing {len(filtered_temp_paths)} new images with {len(existing_image_paths_for_suffix)} images of '{current_full_name}'...")
+                if check_horse_similarity(filtered_temp_paths, existing_image_paths_for_suffix):
                     final_horse_name_for_saving = current_full_name
                     print(f"  Similarity match! New images belong to existing individual: {final_horse_name_for_saving}")
                     match_found_with_existing_suffix = True
@@ -423,22 +463,20 @@ def save_attachments(service, message_id, horse_name_from_subject):
             print(f"New base name '{base_name_from_email}'. Will be saved as {final_horse_name_for_saving} (implicitly suffix _1 if others with this base name are added later).")
 
         saved_files_info = []
-        for temp_path in downloaded_temp_paths:
-            original_filename_from_email = os.path.basename(temp_path).replace(f"temp_{message_id}_", "")
+        for temp_path, original_filename in downloaded_temp_paths:  # Unpack the tuple properly
+            original_filename_from_email = os.path.basename(original_filename)  # Use original_filename instead of temp_path
             filename_for_manifest = f"{final_horse_name_for_saving}-{email_date}-{message_id}-{original_filename_from_email}"
             final_disk_path = os.path.join(DATASET_DIR, filename_for_manifest)
             
             if os.path.exists(final_disk_path) and not REPLACE_EXISTING:
                 print(f"Skipping existing file: {final_disk_path}")
-                continue # Keep temp file for cleanup
+                continue
                 
             try:
-                # Ensure target directory exists (it should from main, but good practice)
                 os.makedirs(os.path.dirname(final_disk_path), exist_ok=True)
-                os.rename(temp_path, final_disk_path)
+                os.rename(temp_path, final_disk_path)  # temp_path is the actual path to the temp file
                 print(f"Saved: {final_disk_path} (Manifest name: {filename_for_manifest})")
                 saved_files_info.append({'manifest_filename': filename_for_manifest, 'original_email_filename': original_filename_from_email})
-                # downloaded_temp_paths.remove(temp_path) # Removed, will clean all at the end
             except OSError as e:
                 print(f"Error moving/renaming file {temp_path} to {final_disk_path}: {e}")
 
@@ -454,12 +492,12 @@ def save_attachments(service, message_id, horse_name_from_subject):
         traceback.print_exc()
     finally:
         # Universal cleanup of any remaining temp files for this message_id
-        for temp_file_path in downloaded_temp_paths:
-            if os.path.exists(temp_file_path):
+       for temp_path, _ in downloaded_temp_paths:  # Unpack tuple, only need the temp_path
+            if os.path.exists(temp_path):
                 try:
-                    os.remove(temp_file_path)
+                    os.remove(temp_path)
                 except OSError as oe:
-                    print(f"Error during final cleanup of temp file {temp_file_path}: {oe}")
+                    print(f"Error during final cleanup of temp file {temp_path}: {oe}")
 
 
 def read_existing_manifest():
@@ -677,6 +715,38 @@ def main():
 
     print("\nFinished processing emails. Updating manifest for all files in dataset directory...")
     create_manifest()
+    print("\nManifest creation/update complete.")
+
+    print("Attempting to shutdown loky's reusable executor...")
+    try:
+        from joblib.externals.loky import get_reusable_executor
+        executor = get_reusable_executor(kill_workers=True, timeout=30) # timeout for shutdown
+        if executor:
+            executor.shutdown(wait=True) # wait for shutdown to complete
+            print("Loky reusable executor shutdown explicitly.")
+        else:
+            print("No active loky reusable executor found by joblib's utility.")
+    except Exception as e:
+        print(f"Error during explicit loky shutdown: {e}")
+
+    print("Checking for active threads before exiting...")
+    import threading
+    active_thread_count = threading.active_count()
+    print(f"Number of active threads: {active_thread_count}")
+    for i, thread in enumerate(threading.enumerate()):
+        print(f"  Thread {i+1}: Name='{thread.name}', Is Daemon={thread.isDaemon()}, Is Alive={thread.is_alive()}")
+        # If you want more details, and know how to get it (e.g. for specific library threads)
+        # you might add more introspection here if possible.
+
+    if active_thread_count > 1: # MainThread is always there
+        print("Warning: There are non-daemon threads still active which might prevent exit.")
+    else:
+        print("Only the MainThread (or only daemon threads) appear to be active.")
+    
+    print("Script attempting to complete.")
+    # import sys
+    # sys.exit(0) # You could try this as a more standard exit than os._exit
+    os._exit(0)
 
 if __name__ == '__main__':
     main()
