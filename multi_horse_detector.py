@@ -70,7 +70,7 @@ def create_html_report(manifest_df, image_dir, detection_type, output_path):
         output_path (str): Path to save the HTML file
     """
     # Filter images based on horse_detection
-    filtered_df = manifest_df[manifest_df['horse_detection'] == detection_type]
+    filtered_df = manifest_df[manifest_df['num_horses_detected'] == detection_type]
     
     # Calculate grid dimensions
     images_per_row = 4
@@ -166,16 +166,16 @@ def main():
         horse_detection_results.append(result)
     
     # Assign results to DataFrame
-    manifest_df['horse_detection'] = horse_detection_results
+    manifest_df['num_horses_detected'] = horse_detection_results
     
     # Save the updated DataFrame to a new CSV file
     print(f"Saving updated manifest to: {output_manifest_file}")
     manifest_df.to_csv(output_manifest_file, index=False)
 
     # Display a summary
-    none_count = (manifest_df['horse_detection'] == HorseDetection.NONE).sum()
-    single_count = (manifest_df['horse_detection'] == HorseDetection.SINGLE).sum()
-    multiple_count = (manifest_df['horse_detection'] == HorseDetection.MULTIPLE).sum()
+    none_count = (manifest_df['num_horses_detected'] == HorseDetection.NONE).sum()
+    single_count = (manifest_df['num_horses_detected'] == HorseDetection.SINGLE).sum()
+    multiple_count = (manifest_df['num_horses_detected'] == HorseDetection.MULTIPLE).sum()
     total_images = len(manifest_df)
     
     print("\n--- Analysis Complete ---")
