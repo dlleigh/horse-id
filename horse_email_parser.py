@@ -509,17 +509,17 @@ def read_existing_manifest():
                 'email_date': str, 
                 'message_id': str, 
                 'filename': str, 
+                'date_added': str,
+                'multi_horse_detected': str,
                 'status': str,
-                'date_added': str
             })
         except pd.errors.EmptyDataError:
             print(f"Manifest file '{MANIFEST_FILE}' is empty. A new one will be created if images are processed.")
-            return pd.DataFrame(columns=['horse_name', 'email_date', 'message_id', 'filename', 'status', 'date_added'])
+            return pd.DataFrame(columns=['horse_name', 'email_date', 'message_id', 'filename', 'date_added', 'multi_horse_detected', 'status'])
         except Exception as e:
             print(f"Error reading manifest file {MANIFEST_FILE}: {e}")
             return None # Indicates an issue reading an existing manifest
-    return pd.DataFrame(columns=['horse_name', 'email_date', 'message_id', 'filename', 'status', 'date_added']) # Return empty df if no file
-
+    return pd.DataFrame(columns=['horse_name', 'email_date', 'message_id', 'filename', 'date_added', 'multi_horse_detected', 'status']) # Return empty df if no file
 
 def create_manifest():
     """Create or update manifest by scanning photos directory and preserving existing entries."""
@@ -588,13 +588,14 @@ def create_manifest():
     
     try:
         with open(MANIFEST_FILE, 'w', newline='') as f:
-            fieldnames = ['horse_name', 'email_date', 'message_id', 'filename', 'date_added', 'status']
+            fieldnames = ['horse_name', 'email_date', 'message_id', 'filename', 'date_added', 'multi_horse_detected', 'status']
             writer = csv.DictWriter(f, fieldnames=fieldnames)
             writer.writeheader()
-            # Ensure all rows have all fieldnames, providing defaults if missing
             for row_dict in final_manifest_rows:
                 if 'date_added' not in row_dict:
                     row_dict['date_added'] = datetime.now().strftime('%Y-%m-%d')
+                if 'multi_horse_detected' not in row_dict:
+                    row_dict['multi_horse_detected'] = ''
                 writer.writerow({field: row_dict.get(field, "") for field in fieldnames})
         print(f"Manifest file updated: {MANIFEST_FILE}")
     except Exception as e:
@@ -611,15 +612,15 @@ def update_manifest_for_email(horse_name_to_save, email_date, message_id, manife
         manifest_dict = {}
 
     for manifest_filename in manifest_filenames_saved:
-        # If file already in manifest (e.g. from a previous partial run), update its info, else add new
-        entry = manifest_dict.get(manifest_filename, {}) # Get existing or new dict
+        entry = manifest_dict.get(manifest_filename, {})
         entry.update({
             'horse_name': horse_name_to_save,
             'email_date': email_date,
             'message_id': message_id,
             'filename': manifest_filename,
-            'status': entry.get('status', ''), # Preserve existing status if any, else empty
-            'date_added': entry.get('date_added', datetime.now().strftime('%Y-%m-%d')) # Preserve existing date or add new
+            'status': entry.get('status', ''),
+            'multi_horse_detected': entry.get('multi_horse_detected', ''), # Preserve existing value or use empty string
+            'date_added': entry.get('date_added', datetime.now().strftime('%Y-%m-%d'))
         })
         manifest_dict[manifest_filename] = entry
     
@@ -628,7 +629,7 @@ def update_manifest_for_email(horse_name_to_save, email_date, message_id, manife
     
     try:
         with open(MANIFEST_FILE, 'w', newline='') as f:
-            fieldnames = ['horse_name', 'email_date', 'message_id', 'filename', 'date_added', 'status']
+            fieldnames = ['horse_name', 'email_date', 'message_id', 'filename', 'date_added', 'multi_horse_detected', 'status']
             writer = csv.DictWriter(f, fieldnames=fieldnames)
             writer.writeheader()
             for row_dict in updated_manifest_rows:
