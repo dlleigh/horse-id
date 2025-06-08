@@ -54,8 +54,8 @@ def is_image_ambiguous(image_path, model):
         largest_area = (horse_boxes[0][2] - horse_boxes[0][0]) * (horse_boxes[0][3] - horse_boxes[0][1])
         second_largest_area = (horse_boxes[1][2] - horse_boxes[1][0]) * (horse_boxes[1][3] - horse_boxes[1][1])
 
-        # If second horse is more than 50% of largest, mark as multiple
-        if second_largest_area / largest_area > 0.5:
+        # If second horse is more than 40% of largest, mark as multiple
+        if second_largest_area / largest_area > 0.4:
             return HorseDetection.MULTIPLE
         return HorseDetection.SINGLE  # Second horse too small to count
 

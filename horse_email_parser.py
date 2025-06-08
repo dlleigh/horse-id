@@ -35,7 +35,7 @@ CREDENTIALS_FILE = 'credentials.json'
 DATA_ROOT = os.environ.get('HORSE_ID_DATA_ROOT', '%s/google-drive/horseID Project/data' % os.environ.get('HOME', '.'))
 DATASET_DIR = '%s/horse_photos' % DATA_ROOT
 MANIFEST_FILE = '%s/horse_photos_manifest.csv' % DATA_ROOT
-CALIBRATION_DIR = '%s/calibrations' % DATA_ROOT # For loading .pkl calibration files
+CALIBRATION_DIR = '%s/calibrations-31_IDs_single_horse-20250606' % DATA_ROOT # For loading .pkl calibration files
 TEMP_DIR = '%s/tmp' % DATA_ROOT
 
 REPLACE_EXISTING = False
@@ -311,7 +311,7 @@ def check_horse_similarity(new_image_paths: list, existing_horse_image_paths: li
     print(f"Checking similarity: {len(dataset_query)} new image(s) vs. {len(dataset_database)} existing image(s)...")
 
     try:
-        b_val = min(100, len(dataset_database))
+        b_val = min(10, len(dataset_database))
         similarity_matrix = parser_wildfusion_system(dataset_query, dataset_database, B=b_val)
 
         if similarity_matrix is None or similarity_matrix.size == 0:
@@ -650,6 +650,9 @@ def get_existing_horses_from_manifest(manifest_df):
         # Skip excluded images
         status_val = row.get('status', '') # Handle missing 'status' column gracefully
         if isinstance(status_val, str) and status_val.upper() == 'EXCLUDE':
+            continue
+        num_horses_val = row.get('num_horses_detected', '') # Handle missing 'num_horses_detected' column gracefully
+        if isinstance(num_horses_val, str) and num_horses_val.upper()  in ['NONE', 'MULTIPLE']:
             continue
             
         horse_name = str(row['horse_name']) # Ensure horse_name is a string
