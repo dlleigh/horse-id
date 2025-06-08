@@ -1,199 +1,97 @@
 import os
 import pandas as pd
 import torch
-import cv2
-import warnings
+import yaml
 from tqdm import tqdm
-from pathlib import Path
-import math
-from enum import Enum
 
-#Filter out the specific FutureWarning
-warnings.filterwarnings('ignore', category=FutureWarning, 
-                       message='`torch.cuda.amp.autocast.*')
+# --- Load Configuration ---
+with open('config.yml', 'r') as f:
+    config = yaml.safe_load(f)
 
-class HorseDetection(str, Enum):
-    NONE = "NONE"
-    SINGLE = "SINGLE" 
-    MULTIPLE = "MULTIPLE"
+# --- Use the config values ---
+DATA_ROOT = os.path.expanduser(config['paths']['data_root'])
+IMAGE_DIR = config['paths']['dataset_dir'].format(data_root=DATA_ROOT)
+# It reads the base manifest and writes to the detected_manifest_file
+INPUT_MANIFEST_FILE = config['paths']['manifest_file'].format(data_root=DATA_ROOT)
+OUTPUT_MANIFEST_FILE = config['detection']['detected_manifest_file'].format(data_root=DATA_ROOT)
+YOLO_MODEL = config['detection']['yolo_model']
+CONFIDENCE_THRESHOLD = config['detection']['confidence_threshold']
 
-def is_image_ambiguous(image_path, model):
+
+def count_horses(image_path, model):
     """
-    Analyzes an image to determine number of horses detected.
-
-    Args:
-        image_path (str): The full path to the image file.
-        model: The loaded YOLOv5 model.
-
-    Returns:
-        HorseDetection: NONE if no horses, SINGLE if one horse, MULTIPLE if multiple horses
+    Analyzes an image to determine the number of horses detected.
+    Returns "NONE", "SINGLE", or "MULTIPLE".
     """
     if not os.path.exists(image_path):
-        print(f"Warning: Image not found at {image_path}")
-        return HorseDetection.NONE
+        print(f"Warning: Image not found at {image_path}, marking as NONE.")
+        return "NONE"
 
-    # Run inference
     try:
         results = model(image_path)
     except Exception as e:
         print(f"Error processing {image_path}: {e}")
-        return HorseDetection.NONE
+        return "NONE"
 
-    # Get bounding box information for horses (class 17 in COCO)
+    # COCO class for 'horse' is 17
     horse_boxes = [box for box in results.xyxy[0] if int(box[5]) == 17]
 
     if len(horse_boxes) == 0:
-        return HorseDetection.NONE
+        return "NONE"
     elif len(horse_boxes) == 1:
-        return HorseDetection.SINGLE
+        return "SINGLE"
     else:
-        # Sort boxes by area (width * height) in descending order
-        horse_boxes.sort(key=lambda x: (x[2] - x[0]) * (x[3] - x[1]), reverse=True)
-
-        # Calculate areas
-        largest_area = (horse_boxes[0][2] - horse_boxes[0][0]) * (horse_boxes[0][3] - horse_boxes[0][1])
-        second_largest_area = (horse_boxes[1][2] - horse_boxes[1][0]) * (horse_boxes[1][3] - horse_boxes[1][1])
-
-        # If second horse is more than 40% of largest, mark as multiple
-        if second_largest_area / largest_area > 0.4:
-            return HorseDetection.MULTIPLE
-        return HorseDetection.SINGLE  # Second horse too small to count
-
-def create_html_report(manifest_df, image_dir, detection_type, output_path):
-    """
-    Creates an HTML file with a grid of images.
-    
-    Args:
-        manifest_df (pd.DataFrame): DataFrame containing image information
-        image_dir (str): Directory containing the images
-        detection_type (HorseDetection): Type of images to include
-        output_path (str): Path to save the HTML file
-    """
-    # Filter images based on horse_detection
-    filtered_df = manifest_df[manifest_df['num_horses_detected'] == detection_type]
-    
-    # Calculate grid dimensions
-    images_per_row = 4
-    total_images = len(filtered_df)
-    
-    html_content = f"""
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <title>{detection_type.value} Horse Images Report</title>
-        <style>
-            .image-grid {{
-                display: grid;
-                grid-template-columns: repeat({images_per_row}, 1fr);
-                gap: 10px;
-                padding: 10px;
-            }}
-            .image-container {{
-                position: relative;
-            }}
-            .image-container img {{
-                width: 100%;
-                height: auto;
-            }}
-            .image-caption {{
-                font-size: 12px;
-                text-align: center;
-                padding: 5px;
-            }}
-        </style>
-    </head>
-    <body>
-        <h1>{detection_type.value} Horse Images ({total_images} images)</h1>
-        <div class="image-grid">
-    """
-    
-    # Add images to the grid
-    for _, row in filtered_df.iterrows():
-        image_path = os.path.join(image_dir, row['filename'])
-        rel_path = os.path.relpath(image_path, os.path.dirname(output_path))
-        html_content += f"""
-            <div class="image-container">
-                <img src="{rel_path}" alt="{row['filename']}">
-                <div class="image-caption">{row['filename']}</div>
-            </div>
-        """
-    
-    html_content += """
-        </div>
-    </body>
-    </html>
-    """
-    
-    # Save the HTML file
-    with open(output_path, 'w') as f:
-        f.write(html_content)
+        # Simple check for multiple significant detections
+        return "MULTIPLE"
 
 def main():
-    """
-    Main function to update the manifest file with ambiguity information.
-    """
-    # --- Configuration ---
-    # Update these paths to match your project structure
-    data_root = os.path.join(os.environ.get('HOME'), 'google-drive/horseID Project/data')
-    image_dir = os.path.join(data_root, 'horse_photos')
-    manifest_file = os.path.join(data_root, 'horse_photos_manifest.csv')
-    output_manifest_file = 'horse_photos_manifest_multi_horse_detected.csv'
-    # -------------------
-
+    """Updates the manifest file with horse detection information."""
     print("Loading YOLOv5 model...")
-    # Load a pre-trained YOLOv5 model
-    # model = torch.hub.load('ultralytics/yolov5', 'yolov5s', pretrained=True)
-    model = torch.hub.load('ultralytics/yolov5', 'yolov5l', pretrained=True)
-    print("Model loaded successfully.")
+    model = torch.hub.load('ultralytics/yolov5', YOLO_MODEL, pretrained=True)
+    model.conf = CONFIDENCE_THRESHOLD
+    print(f"Model '{YOLO_MODEL}' loaded successfully.")
 
-    model.conf = 0.1
-
-    print(f"Reading manifest file: {manifest_file}")
+    print(f"Reading manifest file: {INPUT_MANIFEST_FILE}")
     try:
-        manifest_df = pd.read_csv(manifest_file)
+        manifest_df = pd.read_csv(INPUT_MANIFEST_FILE)
     except FileNotFoundError:
-        print(f"Error: Manifest file not found at {manifest_file}")
+        print(f"Error: Manifest file not found at {INPUT_MANIFEST_FILE}")
         return
 
-    # Create a new column to mark ambiguous images
-    print("Analyzing images for ambiguity...")
-    # Create a list to store results
-    horse_detection_results = []
-    
-    # Process images with progress bar
-    for filename in tqdm(manifest_df['filename'], desc="Processing images"):
-        result = is_image_ambiguous(os.path.join(image_dir, filename), model)
-        horse_detection_results.append(result)
-    
-    # Assign results to DataFrame
-    manifest_df['num_horses_detected'] = horse_detection_results
-    
-    # Save the updated DataFrame to a new CSV file
-    print(f"Saving updated manifest to: {output_manifest_file}")
-    manifest_df.to_csv(output_manifest_file, index=False)
+    # Add column if it doesn't exist
+    if 'num_horses_detected' not in manifest_df.columns:
+        manifest_df['num_horses_detected'] = ''
+
+    # Use .astype(str) to avoid issues with mixed types (e.g., float NaNs)
+    manifest_df['num_horses_detected'] = manifest_df['num_horses_detected'].astype(str)
+
+
+    print("Analyzing images for horse detection...")
+    detection_results = []
+    for _, row in tqdm(manifest_df.iterrows(), total=manifest_df.shape[0], desc="Processing images"):
+        # Only process images that haven't been labeled yet
+        if pd.isna(row['num_horses_detected']) or row['num_horses_detected'] in ['', 'nan']:
+            image_path = os.path.join(IMAGE_DIR, row['filename'])
+            result = count_horses(image_path, model)
+            detection_results.append(result)
+        else:
+            detection_results.append(row['num_horses_detected'])
+
+    manifest_df['num_horses_detected'] = detection_results
+
+    # Save the updated DataFrame to the new CSV file
+    os.makedirs(os.path.dirname(OUTPUT_MANIFEST_FILE), exist_ok=True)
+    print(f"Saving updated manifest to: {OUTPUT_MANIFEST_FILE}")
+    manifest_df.to_csv(OUTPUT_MANIFEST_FILE, index=False)
 
     # Display a summary
-    none_count = (manifest_df['num_horses_detected'] == HorseDetection.NONE).sum()
-    single_count = (manifest_df['num_horses_detected'] == HorseDetection.SINGLE).sum()
-    multiple_count = (manifest_df['num_horses_detected'] == HorseDetection.MULTIPLE).sum()
-    total_images = len(manifest_df)
-    
+    counts = manifest_df['num_horses_detected'].value_counts()
     print("\n--- Analysis Complete ---")
-    print(f"Total images processed: {total_images}")
-    print(f"No horses detected: {none_count} ({none_count/total_images:.1%})")
-    print(f"Single horse detected: {single_count} ({single_count/total_images:.1%})")
-    print(f"Multiple horses detected: {multiple_count} ({multiple_count/total_images:.1%})")
+    print(f"Total images processed: {len(manifest_df)}")
+    for status, count in counts.items():
+        print(f"  {status}: {count}")
     print("-------------------------")
 
-    # Generate HTML reports
-    print("\nGenerating HTML reports...")
-    output_dir = os.path.dirname(output_manifest_file)
-    
-    # Create HTML report for each detection type
-    for detection_type in HorseDetection:
-        report_path = os.path.join(output_dir, f'{detection_type.value.lower()}_horse_report.html')
-        create_html_report(manifest_df, image_dir, detection_type, report_path)
-        print(f"{detection_type.value} report saved to: {report_path}")
 
 if __name__ == '__main__':
     main()

@@ -1,0 +1,36 @@
+# config.yaml
+# Central configuration for the Horse ID pipeline.
+
+# --- File and Directory Paths ---
+# Use {data_root} as a placeholder to keep paths relative and clean.
+paths:
+  data_root: "~/google-drive/horseID Project/data"
+  dataset_dir: "{data_root}/horse_photos"
+  manifest_file: "{data_root}/horse_photos_manifest.csv"
+  # Directory for pre-trained models and calibrations
+  calibration_dir: "{data_root}/calibrations-31_IDs_single_horse-20250606"
+  temp_dir: "{data_root}/tmp"
+  # Output file for the merged manifest
+  merged_manifest_file: "{data_root}/horse_photos_manifest_merged.csv"
+
+# --- Gmail API Settings ---
+gmail:
+  token_file: "token.json"
+  credentials_file: "credentials.json"
+  scopes: ['https://www.googleapis.com/auth/gmail.readonly']
+
+# --- Multi Horse Detector Settings ---
+detection:
+  yolo_model: 'yolov5l' # Options: yolov5s, yolov5m, yolov5l, yolov5x
+  confidence_threshold: 0.1
+  # The detector will read from manifest_file and write to this file
+  detected_manifest_file: "{data_root}/horse_photos_manifest_detected.csv"
+
+
+# --- Similarity/Merging Settings ---
+similarity:
+  # The threshold for determining if two groups of photos represent the same horse.
+  # A lower value means more likely to merge (less sensitive to differences).
+  threshold: 0.85
+  # The merge script will read from the detected_manifest_file.
+  # This ensures it only works on data that has been processed by the detector.
