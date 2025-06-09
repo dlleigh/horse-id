@@ -80,29 +80,59 @@ def extract_horse_name(subject):
         return re.sub(r'[^\w\s-]', '', horse_name).strip()
     return None
 
-def extract_oldest_date(message_gmail_api):
-    """Extract the oldest sent date from email headers and forwarded content."""
+def extract_oldest_date(message_gmail_api): # Renamed parameter for clarity
+    """Extract the oldest sent date from email headers and forwarded content"""
     dates = []
-    # Simplified date parsing logic
-    try:
-        internal_timestamp = int(message_gmail_api.get('internalDate', 0)) / 1000
-        if internal_timestamp > 0:
-            dates.append(datetime.fromtimestamp(internal_timestamp).date())
-    except (ValueError, TypeError):
-        pass # Ignore parsing errors
+    tzinfos = {"CDT": tz.gettz("America/Chicago"), "CST": tz.gettz("America/Chicago"),
+                 "EDT": tz.gettz("America/New_York"), "EST": tz.gettz("America/New_York"),
+                 "PDT": tz.gettz("America/Los_Angeles"), "PST": tz.gettz("America/Los_Angeles"),
+                 "MDT": tz.gettz("America/Denver"), "MST": tz.gettz("America/Denver")}
+
+    def process_part_for_date(part):
+        if 'parts' in part:
+            for subpart in part['parts']:
+                process_part_for_date(subpart)
+            return
+        if part.get('mimeType') == 'text/plain' and 'data' in part.get('body', {}):
+            try:
+                body_bytes = base64.urlsafe_b64decode(part['body']['data'])
+                body_text = body_bytes.decode('utf-8', errors='replace')
+                # Insert newline before each instance of "To", "From", "Sent", and "Subject"
+                body_text = re.sub(r'(?m)(To|From|Sent|Subject):', r'\n\1:', body_text)
+                header_patterns = [r'(?:Sent|Date|From):.+', r'On.+wrote:$', r'>.+\d{4}.*$']
+                for line in body_text.split('\n'):
+                    line_stripped = line.strip()
+                    if any(re.search(pattern, line_stripped, re.IGNORECASE) for pattern in header_patterns):
+                        try:
+                            parsed_date = parser.parse(line_stripped, fuzzy=True, tzinfos=tzinfos)
+                            date_only = parsed_date.date()
+                            if date_only.year > 1970:
+                                dates.append(date_only)
+                        except (ValueError, parser.ParserError, OverflowError):
+                            continue
+            except Exception as e:
+                print(f"Warning: Error decoding or processing part for date: {e}")
+
 
     payload = message_gmail_api.get('payload', {})
-    if 'headers' in payload:
-        for header in payload['headers']:
-            if header['name'].lower() == 'date':
-                try:
-                    dates.append(parser.parse(header['value']).date())
-                except parser.ParserError:
-                    continue
+    process_part_for_date(payload)
+    
+    try:
+        internal_timestamp = int(message_gmail_api.get('internalDate', 0)) / 1000
+        if internal_timestamp > 0 : # Check if timestamp is valid
+            internal_date_obj = datetime.fromtimestamp(internal_timestamp).date()
+            dates.append(internal_date_obj)
+        else: # Fallback if internalDate is 0 or invalid
+            print(f"Warning: Invalid internalDate for message. Using current date as fallback for oldest_date logic.")
+            dates.append(datetime.now().date())
 
-    if not dates:
-        return datetime.now().date().strftime('%Y%m%d')
-    return min(dates).strftime('%Y%m%d')
+    except ValueError: # Handle potential errors converting internalDate
+        print(f"Warning: Could not parse internalDate. Using current date as fallback for oldest_date logic.")
+        dates.append(datetime.now().date())
+
+
+    oldest_date_obj = min(dates) if dates else datetime.now().date()
+    return oldest_date_obj.strftime('%Y%m%d')
 
 def get_next_canonical_id(df):
     """Finds the maximum existing canonical_id and returns the next integer."""
@@ -203,20 +233,19 @@ def main():
         return
 
     print(f"Found {len(messages_to_process)} new emails to process.")
-    all_new_rows = []
-    for message_stub in messages_to_process:
+    total_new_rows = 0
+    
+    for i, message_stub in enumerate(messages_to_process, 1):
         new_rows = save_attachments(service, message_stub, manifest_df)
         if new_rows:
-            all_new_rows.extend(new_rows)
-            # Update the dataframe for the next iteration to get the correct next canonical_id
+            # Update the dataframe with new rows
             manifest_df = pd.concat([manifest_df, pd.DataFrame(new_rows)], ignore_index=True)
+            # Save after each email is processed
+            manifest_df.to_csv(MANIFEST_FILE, index=False)
+            total_new_rows += len(new_rows)
+            print(f"Progress: {i}/{len(messages_to_process)} emails processed. Total new photos: {total_new_rows}")
 
-
-    if all_new_rows:
-        # The manifest_df already contains the old and new rows, so we just save it.
-        manifest_df.to_csv(MANIFEST_FILE, index=False)
-        print(f"\nManifest updated successfully with {len(all_new_rows)} new photo entries.")
-
+    print(f"\nAll done! Added {total_new_rows} new photo entries to manifest.")
     print("\nScript finished.")
 
 if __name__ == '__main__':
