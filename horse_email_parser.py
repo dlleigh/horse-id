@@ -144,11 +144,12 @@ def read_or_create_manifest():
     """Reads the manifest if it exists, otherwise creates an empty DataFrame."""
     if os.path.exists(MANIFEST_FILE):
         try:
-            return pd.read_csv(MANIFEST_FILE, dtype={'message_id': str, 'canonical_id': 'Int64'})
+            return pd.read_csv(MANIFEST_FILE, dtype={'message_id': str, 'canonical_id': 'Int64', 'original_canonical_id': 'Int64'})
         except pd.errors.EmptyDataError:
             pass # Will return empty df below
-    return pd.DataFrame(columns=['horse_name', 'email_date', 'message_id', 'filename',
-                                 'date_added', 'canonical_id', 'num_horses_detected', 'status'])
+    return pd.DataFrame(columns=['horse_name', 'email_date', 'message_id', 'original_filename',
+                                 'filename', 'date_added', 'canonical_id', 'original_canonical_id', 'size_ratio',
+                                 'num_horses_detected', 'last_merged_timestamp', 'status'])
 
 def save_attachments(service, message_stub, manifest_df):
     """
@@ -191,7 +192,7 @@ def save_attachments(service, message_stub, manifest_df):
             file_data = base64.urlsafe_b64decode(att['data'].encode('UTF-8'))
 
             original_filename = part['filename']
-            filename_for_disk = f"{horse_name}-{email_date}-{msg_id}-{original_filename}"
+            filename_for_disk = f"{msg_id}-{original_filename}"
             final_disk_path = os.path.join(DATASET_DIR, filename_for_disk)
 
             os.makedirs(DATASET_DIR, exist_ok=True)
@@ -203,9 +204,13 @@ def save_attachments(service, message_stub, manifest_df):
                 'horse_name': horse_name,
                 'email_date': email_date,
                 'message_id': msg_id,
+                'original_filename': original_filename,
                 'filename': filename_for_disk,
                 'date_added': datetime.now().strftime('%Y-%m-%d'),
                 'canonical_id': next_id,
+                'original_canonical_id': next_id, # Set to the same value initially
+                'last_merged_timestamp': pd.NA, # Set to Null/NA
+                'size_ratio': pd.NA, # Initialize size_ratio
                 'num_horses_detected': '',
                 'status': ''
             })

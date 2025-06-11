@@ -5,13 +5,14 @@ import pandas as pd
 import numpy as np
 import torch
 import timm
+from datetime import datetime
 from tqdm import tqdm
 from itertools import combinations
 from collections import defaultdict
 import torchvision.transforms as T
 
 from wildlife_tools.features import DeepFeatures, SuperPointExtractor, AlikedExtractor, DiskExtractor, SiftExtractor
-from wildlife_tools.similarity import CosineSimilarity, MatchLightGlue
+from wildlife_tools.similarity import MatchLOFTR, CosineSimilarity, MatchLightGlue
 from wildlife_tools.similarity.wildfusion import SimilarityPipeline, WildFusion
 from wildlife_tools.similarity.calibration import IsotonicCalibration
 from wildlife_tools.data import ImageDataset
@@ -36,15 +37,44 @@ def load_wildfusion_system():
 
     calibrated_matchers_dict = {
         'lightglue_superpoint': SimilarityPipeline(
-            matcher=MatchLightGlue(features='superpoint'), extractor=SuperPointExtractor(),
-            transform=T.Compose([T.Resize([512, 512]), T.ToTensor()]),
-            calibration=IsotonicCalibration()
+            matcher = MatchLightGlue(features='superpoint'),
+            extractor = SuperPointExtractor(),
+            transform = T.Compose([
+                T.Resize([512, 512]),
+                T.ToTensor()
+            ]),
+            calibration = IsotonicCalibration()
         ),
-        'lightglue_aliked': SimilarityPipeline(
-            matcher=MatchLightGlue(features='aliked'), extractor=AlikedExtractor(),
-            transform=T.Compose([T.Resize([512, 512]), T.ToTensor()]),
-            calibration=IsotonicCalibration()
-        ),
+
+        # 'lightglue_aliked': SimilarityPipeline(
+        #     matcher = MatchLightGlue(features='aliked'),
+        #     extractor = AlikedExtractor(),
+        #     transform = T.Compose([
+        #         T.Resize([512, 512]),
+        #         T.ToTensor()
+        #     ]),
+        #     calibration = IsotonicCalibration()
+        # ),
+
+        # 'lightglue_disk': SimilarityPipeline(
+        #     matcher = MatchLightGlue(features='disk'),
+        #     extractor = DiskExtractor(),
+        #     transform = T.Compose([
+        #         T.Resize([512, 512]),
+        #         T.ToTensor()
+        #     ]),
+        #     calibration = IsotonicCalibration()
+        # ),
+
+        # 'lightglue_sift': SimilarityPipeline(
+        #     matcher = MatchLightGlue(features='sift'),
+        #     extractor = SiftExtractor(),
+        #     transform = T.Compose([
+        #         T.Resize([512, 512]),
+        #         T.ToTensor()
+        #     ]),
+        #     calibration = IsotonicCalibration()
+        # ),
     }
 
     # Load pre-computed calibrations
@@ -54,6 +84,7 @@ def load_wildfusion_system():
             print(f"  Loading calibration for {name} from: {cal_file}")
             with open(cal_file, 'rb') as f:
                 pipeline.calibration = pickle.load(f)
+                pipeline.calibration_done = True
         else:
             raise FileNotFoundError(f"Calibration file not found for {name}: {cal_file}. Please run training first.")
 
@@ -68,30 +99,49 @@ def load_wildfusion_system():
         ]),
     )
 
+    # return WildFusion(
+    #     calibrated_pipelines=list(calibrated_matchers_dict.values()),
+    #     priority_pipeline=priority_matcher
+    # )
     return WildFusion(
-        calibrated_pipelines=list(calibrated_matchers_dict.values()),
-        priority_pipeline=priority_matcher
+        #calibrated_pipelines=calibrated_matchers_dict.values()
+        calibrated_pipelines=[priority_matcher]
     )
 
 def check_similarity(wildfusion_system, df_a, df_b):
     """
-    Checks if two groups of images (dataframes) are likely the same horse.
+    Checks if two groups of images are a match using a more robust
+    bidirectional similarity check.
     """
     if df_a.empty or df_b.empty:
         return False
 
-    dataset_a = ImageDataset(df_a, root=IMAGE_DIR)
-    dataset_b = ImageDataset(df_b, root=IMAGE_DIR)
+    dataset_a = ImageDataset(df_a, col_label='canonical_id', root=IMAGE_DIR, col_path='filename')
+    dataset_b = ImageDataset(df_b, col_label='canonical_id', root=IMAGE_DIR, col_path='filename')
 
     try:
-        # B is a performance parameter for WildFusion, can be tuned
-        similarity_matrix = wildfusion_system(dataset_a, dataset_b, B=10)
+        similarity_matrix = wildfusion_system(dataset_a, dataset_b)
         if similarity_matrix is None or similarity_matrix.size == 0:
             return False
 
-        # Average the maximum similarity score for each query image
-        avg_max_sim = np.mean(np.max(similarity_matrix, axis=1))
-        return avg_max_sim >= SIMILARITY_THRESHOLD
+        # --- IMPROVED LOGIC: Bidirectional Check ---
+
+        # 1. Calculate similarity from A -> B
+        # For each image in A, find its best match in B, then average those scores.
+        avg_max_sim_ab = np.mean(np.max(similarity_matrix, axis=1))
+
+        # 2. Calculate similarity from B -> A
+        # For each image in B, find its best match in A, then average those scores.
+        avg_max_sim_ba = np.mean(np.max(similarity_matrix, axis=0))
+
+        # 3. Combine the scores. Taking the mean is a good general-purpose approach.
+        # Taking the minimum (np.min) would be even stricter.
+        final_similarity = (avg_max_sim_ab + avg_max_sim_ba) / 2
+
+        print(f"    Sim A->B: {avg_max_sim_ab:.4f}, Sim B->A: {avg_max_sim_ba:.4f}")
+        print(f"    Combined similarity: {final_similarity:.4f} (threshold: {SIMILARITY_THRESHOLD})")
+
+        return final_similarity >= SIMILARITY_THRESHOLD
     except Exception as e:
         print(f"    Error during similarity check: {e}")
         return False
@@ -121,7 +171,8 @@ def main():
     wildfusion = load_wildfusion_system()
 
     print(f"Reading manifest: {INPUT_MANIFEST_FILE}")
-    df = pd.read_csv(INPUT_MANIFEST_FILE)
+    # Read the manifest and ensure message_id is present and of a consistent type
+    df = pd.read_csv(INPUT_MANIFEST_FILE, dtype={'message_id': str})
 
     # Filter for only single horses, as multiple/none are ambiguous
     df_single = df[df['num_horses_detected'] == 'SINGLE'].copy()
@@ -131,26 +182,43 @@ def main():
     df_updated = df.copy() # We'll update this dataframe
 
     for name, group in tqdm(grouped_by_name, desc="Processing names"):
-        unique_ids = group['canonical_id'].unique()
-        if len(unique_ids) <= 1:
-            continue # No merging needed for this name
+        # CHANGED: The unit of comparison is now message_id, not canonical_id.
+        unique_message_ids = group['message_id'].unique()
 
-        print(f"\nProcessing '{name}' with {len(unique_ids)} potential identities.")
+        if len(unique_message_ids) <= 1:
+            continue # No other messages to compare for this name
+
+        print(f"\nProcessing '{name}' with {len(unique_message_ids)} potential identities across different messages.")
+        # The graph still connects canonical_ids, as they are the entities we want to merge.
         graph = defaultdict(list)
-        id_pairs = combinations(unique_ids, 2)
+        
+        # CHANGED: Create pairs of message_ids to compare.
+        message_id_pairs = combinations(unique_message_ids, 2)
 
-        # Build the graph of similar identities
-        for id_a, id_b in id_pairs:
-            print(f"  Comparing ID {id_a} vs ID {id_b}...")
-            df_a = group[group['canonical_id'] == id_a]
-            df_b = group[group['canonical_id'] == id_b]
+        # Build the graph of similar identities by comparing message_id image sets
+        for msg_id_a, msg_id_b in message_id_pairs:
+            # CHANGED: Get all images for each message_id.
+            df_a = group[group['message_id'] == msg_id_a]
+            df_b = group[group['message_id'] == msg_id_b]
+
+            # CHANGED: Get the canonical_id associated with each message.
+            # It's guaranteed that all images in a message have the same canonical_id.
+            canonical_id_a = df_a['canonical_id'].iloc[0]
+            canonical_id_b = df_b['canonical_id'].iloc[0]
+
+            # CHANGED: If they already have the same ID, no need to compare or merge.
+            if canonical_id_a == canonical_id_b:
+                continue
+
+            print(f"  Comparing message '{msg_id_a}' (ID: {canonical_id_a}) vs message '{msg_id_b}' (ID: {canonical_id_b})...")
 
             if check_similarity(wildfusion, df_a, df_b):
-                print(f"    --> Match found between ID {id_a} and ID {id_b}!")
-                graph[id_a].append(id_b)
-                graph[id_b].append(id_a)
+                print(f"    --> Match found between canonical IDs {canonical_id_a} and {canonical_id_b}!")
+                # CHANGED: Add an edge between the respective canonical_ids, not the message_ids.
+                graph[canonical_id_a].append(canonical_id_b)
+                graph[canonical_id_b].append(canonical_id_a)
 
-        # Find the clusters of connected IDs
+        # This part remains the same: find clusters of connected canonical_ids and merge them.
         components = find_connected_components(graph)
         if not components:
             print(f"  No merges found for '{name}'.")
@@ -163,8 +231,13 @@ def main():
                 final_id = min(component)
                 ids_to_merge = [i for i in component if i != final_id]
                 print(f"    Merging IDs {ids_to_merge} into {final_id}.")
-                # Update the main dataframe
-                df_updated.loc[df_updated['canonical_id'].isin(ids_to_merge), 'canonical_id'] = final_id
+                 # --- NEW: Update audit columns ---
+                merge_timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                rows_to_update_mask = df_updated['canonical_id'].isin(ids_to_merge)
+                # Update the canonical_id for the merged rows
+                df_updated.loc[rows_to_update_mask, 'canonical_id'] = final_id
+                # Set the timestamp for the merged rows
+                df_updated.loc[rows_to_update_mask, 'last_merged_timestamp'] = merge_timestamp
 
     # Save the final, merged manifest
     print(f"\nSaving merged manifest to: {OUTPUT_MANIFEST_FILE}")

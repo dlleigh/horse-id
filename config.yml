@@ -23,6 +23,9 @@ gmail:
 detection:
   yolo_model: 'yolov5l' # Options: yolov5s, yolov5m, yolov5l, yolov5x
   confidence_threshold: 0.1
+  # If multiple horses are detected, but one is significantly larger than others,
+  # consider it a single primary detection. e.g., 2.0 means twice as large.
+  size_ratio_for_single_horse: 2.2
   # The detector will read from manifest_file and write to this file
   detected_manifest_file: "{data_root}/horse_photos_manifest_detected.csv"
 
