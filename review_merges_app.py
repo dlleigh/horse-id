@@ -6,7 +6,7 @@ from datetime import datetime
 
 # --- Configuration Loading ---
 CONFIG_FILE = 'config.yml'
-IMAGE_DISPLAY_WIDTH = 200 # Width for displaying images in Streamlit
+IMAGE_DISPLAY_WIDTH = 400 # Width for displaying images in Streamlit
 
 def load_config():
     """Loads the YAML configuration file."""
@@ -93,6 +93,16 @@ def get_images_and_info_for_message_id(manifest_df, msg_id):
 st.set_page_config(layout="wide")
 st.title("Horse Identity Merge Review Tool")
 
+# Custom CSS to increase monospace font size
+st.markdown("""
+<style>
+# code, pre {
+#     font-size: 1.1em !important; /* Adjust the size as needed */
+# }
+</style>
+""", unsafe_allow_html=True)
+
+
 # --- Initialize Session State ---
 if 'manifest_df' not in st.session_state:
     st.session_state.manifest_df = load_manifest_data(MERGED_MANIFEST_FILE)
@@ -142,12 +152,32 @@ if st.session_state.feedback_message:
 
 # --- Get current pair from similarity log ---
 current_pair = st.session_state.merge_results_df.iloc[st.session_state.current_review_idx]
+
 msg_id_a_log = str(current_pair['message_id_a'])
 msg_id_b_log = str(current_pair['message_id_b'])
+
+images_a, current_cid_a, original_cid_a, horse_name_a = get_images_and_info_for_message_id(st.session_state.manifest_df, msg_id_a_log)
+images_b, current_cid_b, original_cid_b, horse_name_b = get_images_and_info_for_message_id(st.session_state.manifest_df, msg_id_b_log)
+
 log_cid_a = current_pair.get('canonical_id_a', 'N/A') # ID at time of logging
 log_cid_b = current_pair.get('canonical_id_b', 'N/A') # ID at time of logging
 similarity_score = current_pair.get('max_similarity', 'N/A') # Changed from final_similarity
-predicted_match = current_pair.get('is_match', 'N/A')
+predicted_match_val = current_pair.get('is_match', 'N/A')
+current_match_val = current_cid_a == current_cid_b
+
+# Determine color and text for predicted_match
+if str(predicted_match_val).lower() == 'true':
+    predicted_match_display = f'<span style="color: green;">True</span>'
+elif str(predicted_match_val).lower() == 'false':
+    predicted_match_display = f'<span style="color: red;">False</span>'
+else:
+    predicted_match_display = str(predicted_match_val) # Display as is if not True/False
+
+# Determine color and text for current_match
+if current_match_val:
+    current_match_display = f'<span style="color: green;">True</span>'
+else:
+    current_match_display = f'<span style="color: red;">False</span>'
 
 st.markdown("---")
 st.subheader(f"Comparison Details (from Merge Results)")
@@ -159,21 +189,20 @@ details_cols[0].markdown(f"""
 - **Logged Canonical ID B:** `{log_cid_b}`
 """)
 details_cols[1].markdown(f"""
+- **Horse Name:** {horse_name_a}
+- **Currently Merged?** {current_match_display}
+- **System Predicted Match:** {predicted_match_display}
 - **Similarity Score:** `{similarity_score}`
-- **System Predicted Match:** `{predicted_match}`
-""")
+""", unsafe_allow_html=True)
 st.markdown("---")
 
 
 # --- Display Images and Current Manifest Info ---
-images_a, current_cid_a, original_cid_a, horse_name_a = get_images_and_info_for_message_id(st.session_state.manifest_df, msg_id_a_log)
-images_b, current_cid_b, original_cid_b, horse_name_b = get_images_and_info_for_message_id(st.session_state.manifest_df, msg_id_b_log)
 
 col1, col2 = st.columns(2)
 
 with col1:
     st.subheader(f"Message A: `{msg_id_a_log}`")
-    if horse_name_a: st.write(f"**Horse Name:** {horse_name_a}")
     st.write(f"**Current Canonical ID:** `{current_cid_a if current_cid_a is not None else 'N/A'}`")
     st.write(f"**Original Canonical ID:** `{original_cid_a if original_cid_a is not None else 'N/A'}`")
     if not images_a:
@@ -186,7 +215,6 @@ with col1:
 
 with col2:
     st.subheader(f"Message B: `{msg_id_b_log}`")
-    if horse_name_b: st.write(f"**Horse Name:** {horse_name_b}")
     st.write(f"**Current Canonical ID:** `{current_cid_b if current_cid_b is not None else 'N/A'}`")
     st.write(f"**Original Canonical ID:** `{original_cid_b if original_cid_b is not None else 'N/A'}`")
     if not images_b:
