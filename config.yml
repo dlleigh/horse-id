@@ -12,6 +12,7 @@ paths:
   temp_dir: "{data_root}/tmp"
   # Output file for the merged manifest
   merged_manifest_file: "{data_root}/horse_photos_manifest_merged.csv"
+  similarity_log_file: "{data_root}/similarity_log.csv"
 
 # --- Gmail API Settings ---
 gmail:
@@ -34,6 +35,6 @@ detection:
 similarity:
   # The threshold for determining if two groups of photos represent the same horse.
   # A lower value means more likely to merge (less sensitive to differences).
-  threshold: 0.85
+  threshold: 0.203
   # The merge script will read from the detected_manifest_file.
   # This ensures it only works on data that has been processed by the detector.

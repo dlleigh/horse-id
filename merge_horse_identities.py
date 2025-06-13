@@ -6,6 +6,7 @@ import numpy as np
 import torch
 import timm
 from datetime import datetime
+import csv # For logging similarity scores
 from tqdm import tqdm
 from itertools import combinations
 from collections import defaultdict
@@ -28,6 +29,7 @@ IMAGE_DIR = config['paths']['dataset_dir'].format(data_root=DATA_ROOT)
 INPUT_MANIFEST_FILE = config['detection']['detected_manifest_file'].format(data_root=DATA_ROOT)
 OUTPUT_MANIFEST_FILE = config['paths']['merged_manifest_file'].format(data_root=DATA_ROOT)
 CALIBRATION_DIR = config['paths']['calibration_dir'].format(data_root=DATA_ROOT)
+SIMILARITY_LOG_FILE = config['paths']['similarity_log_file'].format(data_root=DATA_ROOT)
 SIMILARITY_THRESHOLD = config['similarity']['threshold']
 
 
@@ -75,10 +77,23 @@ def load_wildfusion_system():
         #     ]),
         #     calibration = IsotonicCalibration()
         # ),
+
+        'DeepFeatures': SimilarityPipeline(
+            matcher=CosineSimilarity(),
+            extractor=DeepFeatures(
+                model=timm.create_model('hf-hub:BVRA/wildlife-mega-L-384', num_classes=0, pretrained=True)
+            ),
+            transform=T.Compose([
+                T.Resize(size=(384, 384)), T.ToTensor(),
+                T.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)),
+            ])
+        ),
     }
 
     # Load pre-computed calibrations
     for name, pipeline in calibrated_matchers_dict.items():
+        if name == 'DeepFeatures':
+            continue
         cal_file = os.path.join(CALIBRATION_DIR, f"{name}.pkl")
         if os.path.exists(cal_file):
             print(f"  Loading calibration for {name} from: {cal_file}")
@@ -104,47 +119,55 @@ def load_wildfusion_system():
     #     priority_pipeline=priority_matcher
     # )
     return WildFusion(
-        #calibrated_pipelines=calibrated_matchers_dict.values()
-        calibrated_pipelines=[priority_matcher]
+        calibrated_pipelines=calibrated_matchers_dict.values(),
+        #priority_pipeline=priority_matcher
     )
 
-def check_similarity(wildfusion_system, df_a, df_b):
+def check_similarity(wildfusion_system, df_a, df_b, horse_name, canonical_id_a, canonical_id_b, msg_id_a, msg_id_b, log_path):
     """
     Checks if two groups of images are a match using a more robust
     bidirectional similarity check.
     """
+    overall_max_similarity = np.nan
+    is_match = False
     if df_a.empty or df_b.empty:
         return False
 
     dataset_a = ImageDataset(df_a, col_label='canonical_id', root=IMAGE_DIR, col_path='filename')
     dataset_b = ImageDataset(df_b, col_label='canonical_id', root=IMAGE_DIR, col_path='filename')
-
     try:
         similarity_matrix = wildfusion_system(dataset_a, dataset_b)
         if similarity_matrix is None or similarity_matrix.size == 0:
+            # Log this attempt even if similarity_matrix is empty
             return False
 
-        # --- IMPROVED LOGIC: Bidirectional Check ---
-
-        # 1. Calculate similarity from A -> B
-        # For each image in A, find its best match in B, then average those scores.
-        avg_max_sim_ab = np.mean(np.max(similarity_matrix, axis=1))
-
-        # 2. Calculate similarity from B -> A
-        # For each image in B, find its best match in A, then average those scores.
-        avg_max_sim_ba = np.mean(np.max(similarity_matrix, axis=0))
-
-        # 3. Combine the scores. Taking the mean is a good general-purpose approach.
-        # Taking the minimum (np.min) would be even stricter.
-        final_similarity = (avg_max_sim_ab + avg_max_sim_ba) / 2
-
-        print(f"    Sim A->B: {avg_max_sim_ab:.4f}, Sim B->A: {avg_max_sim_ba:.4f}")
-        print(f"    Combined similarity: {final_similarity:.4f} (threshold: {SIMILARITY_THRESHOLD})")
-
-        return final_similarity >= SIMILARITY_THRESHOLD
+        # --- NEW LOGIC: Match if any single pair is above threshold ---
+        if similarity_matrix.size > 0: # Ensure matrix is not empty before calling np.max
+            overall_max_similarity = np.max(similarity_matrix)
+            print(f"    Max similarity found across all pairs: {overall_max_similarity:.4f} (threshold: {SIMILARITY_THRESHOLD})")
+            is_match = overall_max_similarity >= SIMILARITY_THRESHOLD
+        else:
+            # overall_max_similarity remains np.nan, is_match remains False
+            print(f"    Similarity matrix is empty, no match.")
+        return is_match
     except Exception as e:
         print(f"    Error during similarity check: {e}")
         return False
+    finally:
+        # Log the similarity scores
+        log_entry = {
+            'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            'horse_name': horse_name,
+            'canonical_id_a': canonical_id_a,
+            'canonical_id_b': canonical_id_b,
+            'message_id_a': msg_id_a,
+            'message_id_b': msg_id_b,
+            'max_similarity': f"{overall_max_similarity:.4f}" if not np.isnan(overall_max_similarity) else 'N/A',
+            'is_match': is_match
+        }
+        with open(log_path, 'a', newline='') as f:
+            writer = csv.DictWriter(f, fieldnames=log_entry.keys())
+            writer.writerow(log_entry)
 
 def find_connected_components(graph):
     """Finds all connected components in a graph using BFS."""
@@ -173,6 +196,13 @@ def main():
     print(f"Reading manifest: {INPUT_MANIFEST_FILE}")
     # Read the manifest and ensure message_id is present and of a consistent type
     df = pd.read_csv(INPUT_MANIFEST_FILE, dtype={'message_id': str})
+
+    # Always overwrite the similarity log file and write headers
+    log_headers = ['timestamp', 'horse_name', 'canonical_id_a', 'canonical_id_b', 'message_id_a', 'message_id_b',
+                   'max_similarity', 'is_match'] # Updated log headers
+    with open(SIMILARITY_LOG_FILE, 'w', newline='') as f:
+        writer = csv.DictWriter(f, fieldnames=log_headers)
+        writer.writeheader()
 
     # Filter for only single horses, as multiple/none are ambiguous
     df_single = df[df['num_horses_detected'] == 'SINGLE'].copy()
@@ -212,7 +242,7 @@ def main():
 
             print(f"  Comparing message '{msg_id_a}' (ID: {canonical_id_a}) vs message '{msg_id_b}' (ID: {canonical_id_b})...")
 
-            if check_similarity(wildfusion, df_a, df_b):
+            if check_similarity(wildfusion, df_a, df_b, name, canonical_id_a, canonical_id_b, msg_id_a, msg_id_b, SIMILARITY_LOG_FILE):
                 print(f"    --> Match found between canonical IDs {canonical_id_a} and {canonical_id_b}!")
                 # CHANGED: Add an edge between the respective canonical_ids, not the message_ids.
                 graph[canonical_id_a].append(canonical_id_b)

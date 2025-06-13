@@ -211,6 +211,7 @@ def create_html_gallery(df, output_path, manifest_display_name, current_manifest
         filename_safe = html.escape(row['filename'])
         detection_status = row.get('num_horses_detected', 'N/A')
         size_ratio_val = row.get('size_ratio', 'N/A')
+        original_canonical_id_val = row.get('original_canonical_id', 'N/A')
         is_merged_flag = str(row['horse_name'] in merged_horse_names).lower()
         has_multiple_canonical_ids_flag = str(row['horse_name'] in unmerged_multi_id_horse_names).lower()
 
@@ -223,6 +224,7 @@ def create_html_gallery(df, output_path, manifest_display_name, current_manifest
             data-filename="{filename_safe}"
             data-email-date="{row.get('email_date', 'N/A')}"
             data-size-ratio="{size_ratio_val}"
+            data-original-canonical-id="{original_canonical_id_val}"
             data-is-merged="{is_merged_flag}"
             data-has-multiple-canonical-ids="{has_multiple_canonical_ids_flag}"
             onclick="openModal(this)">
@@ -230,6 +232,7 @@ def create_html_gallery(df, output_path, manifest_display_name, current_manifest
             <div class="caption">
                 <p><span class="label">Name:</span> {horse_name_safe}</p>
                 <p><span class="label">ID:</span> {row['canonical_id']}</p>
+                <p><span class="label">Orig. ID:</span> {original_canonical_id_val if pd.notna(original_canonical_id_val) else 'N/A'}</p>
                 <p><span class="label">Detection:</span> {detection_status}</p>
                 <p><span class="label">File:</span> {filename_safe}</p>
                 <p><span class="label">Size Ratio:</span> {size_ratio_val if pd.notna(size_ratio_val) else 'N/A'}</p>
@@ -257,6 +260,7 @@ def create_html_gallery(df, output_path, manifest_display_name, current_manifest
             const metadata = `
                 <p><strong>Horse Name:</strong> ${element.getAttribute('data-horse-name')}</p>
                 <p><strong>Canonical ID:</strong> ${element.getAttribute('data-canonical-id')}</p>
+                <p><strong>Original Canonical ID:</strong> ${element.getAttribute('data-original-canonical-id') !== 'nan' ? element.getAttribute('data-original-canonical-id') : 'N/A'}</p>
                 <p><strong>Detection Status:</strong> ${element.getAttribute('data-detection')}</p>
                 <p><strong>Email Date:</strong> ${element.getAttribute('data-email-date')}</p>
                 <p><strong>Filename:</strong> ${element.getAttribute('data-filename')}</p>
