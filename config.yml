@@ -12,7 +12,7 @@ paths:
   temp_dir: "{data_root}/tmp"
   # Output file for the merged manifest
   merged_manifest_file: "{data_root}/horse_photos_manifest_merged.csv"
-  similarity_log_file: "{data_root}/similarity_log.csv"
+  merge_results_file: "{data_root}/merge_results.csv" # Renamed from similarity_log_file
 
 # --- Gmail API Settings ---
 gmail:

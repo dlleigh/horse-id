@@ -90,54 +90,78 @@ def main():
     model.conf = CONFIDENCE_THRESHOLD
     print(f"Model '{YOLO_MODEL}' loaded successfully.")
 
-    print(f"Reading manifest file: {INPUT_MANIFEST_FILE}")
+    # INPUT_MANIFEST_FILE is config['paths']['manifest_file'] (from parser)
+    # OUTPUT_MANIFEST_FILE is config['detection']['detected_manifest_file'] (this script's output)
+    print(f"Reading base manifest file: {INPUT_MANIFEST_FILE}")
     try:
-        manifest_df = pd.read_csv(INPUT_MANIFEST_FILE)
+        base_manifest_df = pd.read_csv(INPUT_MANIFEST_FILE, dtype={'filename': str})
     except FileNotFoundError:
         print(f"Error: Manifest file not found at {INPUT_MANIFEST_FILE}")
         return
 
-    # Add column if it doesn't exist
-    if 'num_horses_detected' not in manifest_df.columns:
-        manifest_df['num_horses_detected'] = ''
-    if 'size_ratio' not in manifest_df.columns:
-        manifest_df['size_ratio'] = pd.NA # Use pandas NA for float columns
+    output_df = base_manifest_df.copy()
 
-    # Use .astype(str) to avoid issues with mixed types (e.g., float NaNs)
-    manifest_df['num_horses_detected'] = manifest_df['num_horses_detected'].astype(str)
-    manifest_df['size_ratio'] = pd.to_numeric(manifest_df['size_ratio'], errors='coerce')
+    # Initialize detection columns if they don't exist (e.g., from parser's output)
+    if 'num_horses_detected' not in output_df.columns:
+        output_df['num_horses_detected'] = ''
+    if 'size_ratio' not in output_df.columns:
+        output_df['size_ratio'] = pd.NA
+
+    # Ensure correct types before potentially filling from previous run
+    output_df['num_horses_detected'] = output_df['num_horses_detected'].astype(str)
+    output_df['size_ratio'] = pd.to_numeric(output_df['size_ratio'], errors='coerce')
+
+    # Load previous detection results if the output file exists
+    if os.path.exists(OUTPUT_MANIFEST_FILE):
+        print(f"Loading previous detections from: {OUTPUT_MANIFEST_FILE}")
+        previous_detections_df = pd.read_csv(OUTPUT_MANIFEST_FILE, dtype={'filename': str})
+
+        if not previous_detections_df.empty:
+            # Create a map for efficient lookup of previous results
+            previous_detections_map = {}
+            prev_num_horses_col = 'num_horses_detected' if 'num_horses_detected' in previous_detections_df.columns else None
+            prev_size_ratio_col = 'size_ratio' if 'size_ratio' in previous_detections_df.columns else None
+
+            for _, prev_row in previous_detections_df.iterrows():
+                num_horses = str(prev_row[prev_num_horses_col]) if prev_num_horses_col and pd.notna(prev_row[prev_num_horses_col]) else ''
+                size_ratio = pd.to_numeric(prev_row[prev_size_ratio_col], errors='coerce') if prev_size_ratio_col and pd.notna(prev_row[prev_size_ratio_col]) else pd.NA
+                if prev_row['filename']: # Ensure filename is not None
+                    previous_detections_map[prev_row['filename']] = (num_horses, size_ratio)
+            
+            # Apply previous detections to output_df
+            def apply_previous_detections(row):
+                if row['filename'] in previous_detections_map:
+                    prev_detection, prev_ratio = previous_detections_map[row['filename']]
+                    # Update if current is empty/default or if previous had a more specific value
+                    if not str(row['num_horses_detected']).strip() or str(row['num_horses_detected']).lower() in ['nan', '<na>']:
+                        row['num_horses_detected'] = prev_detection
+                    if pd.isna(row['size_ratio']):
+                         row['size_ratio'] = prev_ratio
+                return row
+            output_df = output_df.apply(apply_previous_detections, axis=1)
 
 
     print("Analyzing images for horse detection...")
-    detection_results = []
-    size_ratio_results = []
-
-    for _, row in tqdm(manifest_df.iterrows(), total=manifest_df.shape[0], desc="Processing images"):
-        # Only process images that haven't been labeled yet
-        if pd.isna(row['num_horses_detected']) or row['num_horses_detected'] in ['', 'nan']:
+    for index, row in tqdm(output_df.iterrows(), total=output_df.shape[0], desc="Processing images"):
+        current_detection_status = str(row['num_horses_detected']).strip().lower()
+        if not current_detection_status or current_detection_status in ['nan', '<na>']: # Process if empty, 'nan', or '<NA>'
             image_path = os.path.join(IMAGE_DIR, row['filename'])
             status, ratio = count_horses(image_path, model)
-            detection_results.append(status)
-            size_ratio_results.append(ratio)
-        else:
-            detection_results.append(row['num_horses_detected'])
-            size_ratio_results.append(row['size_ratio']) # Keep existing value if already processed
-
-    manifest_df['num_horses_detected'] = detection_results
-    manifest_df['size_ratio'] = size_ratio_results
+            output_df.loc[index, 'num_horses_detected'] = status
+            output_df.loc[index, 'size_ratio'] = ratio
 
     # Save the updated DataFrame to the new CSV file
     os.makedirs(os.path.dirname(OUTPUT_MANIFEST_FILE), exist_ok=True)
     print(f"Saving updated manifest to: {OUTPUT_MANIFEST_FILE}")
-    manifest_df.to_csv(OUTPUT_MANIFEST_FILE, index=False)
+    output_df.to_csv(OUTPUT_MANIFEST_FILE, index=False)
 
     # Display a summary
-    counts = manifest_df['num_horses_detected'].value_counts()
+    counts = output_df['num_horses_detected'].value_counts()
     print("\n--- Analysis Complete ---")
-    print(f"Total images processed: {len(manifest_df)}")
+    print(f"Total images in manifest: {len(output_df)}")
     for status, count in counts.items():
         print(f"  {status}: {count}")
-    print(f"  Average size_ratio (for MULTIPLE actual detections): {manifest_df[manifest_df['num_horses_detected'] == 'MULTIPLE']['size_ratio'].mean():.2f}")
+    print(f"  Average size_ratio (for MULTIPLE actual detections): {output_df[output_df['num_horses_detected'] == 'MULTIPLE']['size_ratio'].mean():.2f}")
 
     print("-------------------------")
 
