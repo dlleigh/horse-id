@@ -8,7 +8,7 @@ paths:
   dataset_dir: "{data_root}/horse_photos"
   manifest_file: "{data_root}/horse_photos_manifest.csv"
   # Directory for pre-trained models and calibrations
-  calibration_dir: "{data_root}/calibrations-31_IDs_single_horse-20250606"
+  calibration_dir: "{data_root}/calibrations"
   temp_dir: "{data_root}/tmp"
   # Output file for the merged manifest
   merged_manifest_file: "{data_root}/horse_photos_manifest_merged.csv"

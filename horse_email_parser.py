@@ -4,6 +4,7 @@ import re
 import csv
 import yaml
 from datetime import datetime
+from collections import defaultdict # Added for filename counting
 from dateutil import parser, tz
 import pandas as pd
 from google.auth.transport.requests import Request
@@ -158,6 +159,7 @@ def save_attachments(service, message_stub, manifest_df):
     """
     msg_id = message_stub['id']
     new_rows = []
+    filename_occurrence_count = defaultdict(int) # To track occurrences of original filenames within this email
     try:
         msg_full = service.users().messages().get(userId='me', id=msg_id, format='full').execute()
         subject_header = next((h['value'] for h in msg_full['payload']['headers'] if h['name'].lower() == 'subject'), "")
@@ -191,11 +193,18 @@ def save_attachments(service, message_stub, manifest_df):
             att = service.users().messages().attachments().get(userId='me', messageId=msg_id, id=att_id).execute()
             file_data = base64.urlsafe_b64decode(att['data'].encode('UTF-8'))
 
-            original_filename = part['filename']
-            filename_for_disk = f"{msg_id}-{original_filename}"
+            original_filename_from_part = part['filename']
+            filename_occurrence_count[original_filename_from_part] += 1
+            count = filename_occurrence_count[original_filename_from_part]
+
+            base, ext = os.path.splitext(original_filename_from_part)
+            if count == 1: # First time seeing this original_filename in this email
+                filename_for_disk = f"{msg_id}-{original_filename_from_part}"
+            else: # Duplicate original_filename within the same email
+                filename_for_disk = f"{msg_id}-{base}-{count-1}{ext}"
+
             final_disk_path = os.path.join(DATASET_DIR, filename_for_disk)
 
-            os.makedirs(DATASET_DIR, exist_ok=True)
             with open(final_disk_path, 'wb') as f:
                 f.write(file_data)
             print(f"  Saved: {final_disk_path}")
@@ -204,7 +213,7 @@ def save_attachments(service, message_stub, manifest_df):
                 'horse_name': horse_name,
                 'email_date': email_date,
                 'message_id': msg_id,
-                'original_filename': original_filename,
+                'original_filename': original_filename_from_part, # Store the true original filename
                 'filename': filename_for_disk,
                 'date_added': datetime.now().strftime('%Y-%m-%d'),
                 'canonical_id': next_id,
