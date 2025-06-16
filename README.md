@@ -12,6 +12,7 @@ The workflow is divided into several stages, each handled by a specific Python s
 3.  **Identity Merging (`merge_horse_identities.py`)**: Compares images of horses (identified as 'SINGLE' detection) with the same extracted horse name but from different emails. It uses the WildFusion similarity system to determine if they are the same horse and merges their identities by assigning a common `canonical_id`.
 4.  **Merge Review (`review_merges_app.py`)**: A Streamlit web application that allows a user to review the automated merge decisions from `merge_horse_identities.py`, manually merge or un-merge identities, and correct any errors.
 5.  **Gallery Generation (`generate_gallery.py`)**: Creates interactive HTML galleries from the various manifest CSV files (base, detected, and merged), allowing for easy visual inspection and filtering of the image data at different stages of processing.
+6. **Calibration and Testing (`horse_id.ipynb`)**: Creates calibration files if none exist, evaluates model performance and creates the prediction results file for side-by-side comparison of test images and model predictions.
 
 ### Key Technologies and Frameworks
 
@@ -126,7 +127,7 @@ The workflow is divided into several stages, each handled by a specific Python s
     *   **WildFusion System**: Initializes the `WildFusion` system with the (now calibrated) pipelines and a priority pipeline (e.g., `DeepFeatures`).
     *   **Similarity Computation**: Computes a similarity matrix between the query and database image sets using the `WildFusion` system.
     *   **Evaluation**: Uses a `KnnClassifier` (from `wildlife_tools.inference`) to predict identities for the query set based on the similarity matrix and calculates the accuracy of the predictions.
-    *   **Visualization**: Includes functionality to display prediction results, showing test images alongside their predicted matches, color-coded for correctness.
+    *   **Visualization**: Creates an HTML display of prediction results, showing test images alongside their predicted matches with similarity scores, color-coded based on whether the match was correct.
 
 ## CSV Files and Data Flow
 
@@ -211,6 +212,7 @@ graph TD
         manifest_merged --> calibration["horse_id.ipynb"]
         calibration -- "creates if not found" --> calibration_files(calibration pkl files)
         calibration_files -- "reads" --> merger
+        calibration --> prediction_results["prediction_results.html"]
     end
 
 ```
