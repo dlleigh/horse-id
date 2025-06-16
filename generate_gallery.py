@@ -17,7 +17,7 @@ IMAGE_DIR = config['paths']['dataset_dir'].format(data_root=DATA_ROOT)
 # Use the final merged manifest as the data source
 # MANIFEST_FILE = config['detection']['detected_manifest_file'].format(data_root=DATA_ROOT) # Will be dynamic
 GALLERY_BASE_FILENAME = "horse_gallery"
-GALLERY_OUTPUT_DIR = os.path.dirname(DATA_ROOT) # Assumes DATA_ROOT is a directory like '.../data'
+GALLERY_OUTPUT_DIR = DATA_ROOT # Assumes DATA_ROOT is a directory like '.../data'
 
 
 def create_html_gallery(df, output_path, manifest_display_name, current_manifest_key, all_manifest_options):
