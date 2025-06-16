@@ -1,6 +1,6 @@
 # Horse Identity Matching System
 
-This system is designed to an individual horse to be identified based on its picture, using a database of labeled horse images that are collected from emails that contain these images as attachments. The system contains components which processes emails containing horse photos, detects horses in those photos, merges photos of the same horse from different emails into a single identity,
+This system is designed to identify an individual horse based on its picture, using a database of labeled horse images that are collected from emails that contain these images as attachments. The system contains components which processes emails containing horse photos, detects horses in those photos, merges photos of the same horse from different emails into a single identity,
 and tools to review images and correct merges.
 
 ## System Overview
