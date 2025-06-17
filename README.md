@@ -9,24 +9,19 @@ The workflow is divided into several stages, each handled by a specific Python s
 1.  **Email Ingestion (`horse_email_parser.py`)**: Fetches emails from a Gmail account, extracts horse names from subjects, saves image attachments, and creates an initial manifest of photos.
 2.  **Multi-Horse Detection (`multi_horse_detector.py`)**: Analyzes each downloaded image to detect the number of horses present (NONE, SINGLE, MULTIPLE) using a YOLOv5 model. It updates the manifest with this detection information.
 3.  **Identity Merging (`merge_horse_identities.py`)**: Compares images of horses (identified as 'SINGLE' detection) with the same extracted horse name but from different emails. It uses the WildFusion similarity system to determine if they are the same horse and merges their identities by assigning a common `canonical_id`.
-4.  **Merge Review (`review_merges_app.py`)**: A Streamlit web application that allows a user to review the automated merge decisions from `merge_horse_identities.py`, manually merge or un-merge identities, and correct any errors.
+4.  **Merge Review (`review_merges_app.py`)**: A web application that allows a user to review the automated merge decisions from `merge_horse_identities.py`, manually merge or un-merge identities, and correct any errors.
 5.  **Gallery Generation (`generate_gallery.py`)**: Creates interactive HTML galleries from the various manifest CSV files (base, detected, and merged), allowing for easy visual inspection and filtering of the image data at different stages of processing.
 6. **Calibration and Testing (`horse_id.ipynb`)**: Creates calibration files if none exist, evaluates model performance and creates the prediction results file for side-by-side comparison of test images and model predictions.
 
 ### Key Technologies and Frameworks
 
-*   **WildlifeTools Framework**: The system heavily relies on this suite of tools designed for wildlife image analysis and individual animal identification.
-    *   **WildlifeTools Documentation**: https://wildlifedatasets.github.io/wildlife-tools/
-    *   **WildlifeDatasets Documentation**: https://wildlifedatasets.github.io/wildlife-datasets/
-    *   Key components from WildlifeTools used include:
-        *   `ImageDataset` for loading and managing image data.
-        *   Feature extractors like `DeepFeatures` (utilizing models like `BVRA/wildlife-mega-L-384` from Hugging Face, also known as `MegaDescriptor-L-384`), `SuperPointExtractor`.
-        *   Similarity matchers such as `CosineSimilarity` and `MatchLightGlue`.
-        *   The `WildFusion` system for combining multiple similarity scores.
-        *   `IsotonicCalibration` for calibrating similarity scores.
+*   **WildlifeTools Framework**: This system heavily relies on the [WildLife Tools](https://wildlifedatasets.github.io/wildlife-tools/) and [WildLife Datasets](https://wildlifedatasets.github.io/wildlife-datasets/) tools designed for individual animal identification. Key components from WildlifeTools used include:
+    *   `ImageDataset` for loading and managing image data.
+    *   Feature extractors like `DeepFeatures` (utilizing [Wildlife-mega-L-384](https://huggingface.co/BVRA/MegaDescriptor-L-384), and `SuperPointExtractor`.
+    *   Similarity matching framework
+    *   The `WildFusion` pipeline for calibrating and combining multiple similarity scores.
 *   **YOLOv5**: Used by `multi_horse_detector.py` for multi-object detection, specifically to identify images that contain multiple horses.
-*   **Streamlit**: https://streamlit.io/
-    * Powers the `review_merges_app.py` for creating an interactive web application for merge review.
+*   **Streamlit**: (https://streamlit.io/) Framework used by `review_merges_app.py` to create an interactive web application for merge review.
 *   **Google Gmail API**: Used by `horse_email_parser.py` to fetch and process emails.
 
 ## Core Scripts and Functionality
@@ -117,15 +112,14 @@ The workflow is divided into several stages, each handled by a specific Python s
     *   **Data Loading**:
         *   Loads the `merged_manifest_file`. 
         *   Creates a `WildlifeDataset` (custom `Horses` class) from the manifest, filtering for 'SINGLE' detected horses.
-    *   **Data Splitting**: Uses `wildlife_datasets.splits` (e.g., `DisjointSetSplit`, `ClosedSetSplit`) to divide the dataset into training and testing sets, and further splits the test set into query and database sets.
-    *   **Matcher Definition**: Defines a dictionary of `SimilarityPipeline`s, each combining a feature extractor (e.g., `SuperPointExtractor`, `DeepFeatures` with `BVRA/wildlife-mega-L-384`) and a matcher (e.g., `MatchLightGlue`, `CosineSimilarity`), along with an `IsotonicCalibration` object.
+    *   **Data Splitting**: Uses `wildlife_datasets.splits` to divide the dataset into calibration and testing sets, and further splits the testng set into query and database sets.
     *   **Calibration Fitting/Loading**:
         *   Checks for existing `.pkl` calibration files in `CALIBRATION_DIR`.
         *   If files exist, they are loaded.
         *   If not, `wildfusion.fit_calibration()` is called on the training dataset to train the calibrators, which are then saved as `.pkl` files.
     *   **WildFusion System**: Initializes the `WildFusion` system with the (now calibrated) pipelines and a priority pipeline (e.g., `DeepFeatures`).
     *   **Similarity Computation**: Computes a similarity matrix between the query and database image sets using the `WildFusion` system.
-    *   **Evaluation**: Uses a `KnnClassifier` (from `wildlife_tools.inference`) to predict identities for the query set based on the similarity matrix and calculates the accuracy of the predictions.
+    *   **Evaluation**: Uses a `KnnClassifier` to predict identities for the query set based on the similarity matrix and calculates the accuracy of the predictions.
     *   **Visualization**: Creates an HTML display of prediction results, showing test images alongside their predicted matches with similarity scores, color-coded based on whether the match was correct.
 
 ## CSV Files and Data Flow
