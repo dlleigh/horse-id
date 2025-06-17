@@ -1,7 +1,6 @@
 # Horse Identity Matching System
 
-This system is designed to identify an individual horse based on its picture, using a database of labeled horse images that are collected from emails that contain these images as attachments. The system contains components which processes emails containing horse photos, detects horses in those photos, merges photos of the same horse from different emails into a single identity,
-and tools to review images and correct merges.
+This system is designed to identify an individual horse based on its picture, using a database of labeled horse images that are collected from emails that contain these images as attachments. The system contains components which processes emails containing horse photos, detects horses in those photos, merges photos of the same horse from different emails into a single identity, as well as tools to review images and correct merges.
 
 ## System Overview
 
@@ -38,16 +37,16 @@ The workflow is divided into several stages, each handled by a specific Python s
 *   **Email Fetching**: Retrieves new emails that haven't been processed yet by comparing message IDs against the existing manifest.
 *   **Information Extraction**:
     *   **Horse Name**: Extracts the horse's name from the email subject line using regular expressions (e.g., "HorseName - Season Year").
-    *   **Email Date**: Determines the oldest relevant date associated with the email content, considering forwarded message headers and the email's internal date. This helps in chronological organization.
+    *   **Email Date**: Determines the oldest relevant date associated with the email content, considering forwarded message headers and the email's internal date. The date is included as part of the image metadata.
 *   **Attachment Handling**:
     *   Identifies and downloads image attachments (JPG, JPEG, PNG, GIF).
-    *   Assigns a unique `canonical_id` to all photos from the *same email*. This ID serves as the initial grouping.
+    *   Assigns a unique `canonical_id` to all photos from the *same email*. 
     *   Saves images to a configured `dataset_dir` with a filename format: `{message_id}-{original_filename}`. If duplicate original filenames exist within the same email, a counter is appended (e.g., `{message_id}-{base}-{count}{ext}`).
 *   **Manifest Creation**: Creates or updates a CSV file (specified by `manifest_file` in `config.yml`) with one row per downloaded image.
 
 ### 2. Multi-Horse Detection (`multi_horse_detector.py`)
 
-*   **Purpose**: Many photos colleded by `horse_email_parser.py` contain images of multiple horses. The goal of `multi-horse_detector.py` is to select the photos are unambiguously images of the labeled horse. These are labeled SINGLE.  Images which are labeled MULTIPLE and NONE are ignored in subsequent processing.
+*   **Purpose**: Many photos collected by `horse_email_parser.py` contain images of multiple horses. The goal of `multi-horse_detector.py` is to select the photos which are unambiguously images of the labeled horse. These images are labeled SINGLE.  Images which are labeled MULTIPLE and NONE are ignored in subsequent processing.
 *   **Model Loading**: Loads a pre-trained YOLOv5 model specified in `config.yml`.
 *   **Image Analysis**: For each image in the manifest (from the output of `horse_email_parser.py`):
     *   Detects objects and identifies horses (COCO class 17).
@@ -56,12 +55,12 @@ The workflow is divided into several stages, each handled by a specific Python s
         *   `SINGLE`: One horse detected, or multiple horses where one is significantly larger than others (based on `SIZE_RATIO` in `config.yml`).
         *   `MULTIPLE`: Multiple horses detected where no single horse is dominant enough to be considered 'SINGLE'.
     *   **Size Ratio**: If multiple horses are detected, it calculates the ratio of the largest horse's bounding box area to the next largest. This is stored as `size_ratio`.
-*   **Manifest Update**: Reads the manifest from the previous step, adds/updates `num_horses_detected` and `size_ratio` columns, and saves it to a new CSV file (`detected_manifest_file` in `config.yml`). It can also load and preserve previous detection results if the output file already exists.
+*   **Manifest Update**: Reads the manifest from the previous step, adds/updates `num_horses_detected` and `size_ratio` columns, and saves it to a new CSV file (`detected_manifest_file` in `config.yml`). The system preserves previous detection results if the output file already exists.
 
 ### 3. Identity Merging (`merge_horse_identities.py`)
 
 *   **Purpose**: There are multiple emails available for each horse, each with images taken at different times. There are also multiple horses with the same name. The purpose of `merge_horse_identities.py` is to determine whether horses with the same name but different canonical_id are actually the same horse.
-*   **Similarity System**: Leverages the **WildlifeTools framework** (specifically WildFusion) to perform sophisticated image similarity comparisons. It employs a combination of deep learning features (e.g., from `BVRA/wildlife-mega-L-384`) and local feature matchers (e.g., SuperPoint with LightGlue). Calibrated models are expected to be present in the `calibration_dir`.
+*   **Similarity System**: Leverages the **WildlifeTools framework** (specifically WildFusion) to perform image similarity comparisons. It employs a combination of deep learning features (e.g., from `BVRA/wildlife-mega-L-384`) and local feature matchers (e.g., SuperPoint with LightGlue). Calibrated models are expected to be present in the `calibration_dir`.
 *   **Candidate Selection**:
     *   Filters the manifest for images marked as `SINGLE` horse detections.
     *   Groups these images by the `horse_name` extracted from email subjects.
@@ -74,7 +73,7 @@ The workflow is divided into several stages, each handled by a specific Python s
     *   Finds connected components in this graph. All `canonical_id`s within a component are considered to represent the same horse.
     *   The lowest `canonical_id` in a component becomes the new `canonical_id` for all images belonging to that component.
 *   **Manifest Update**: Updates the `canonical_id` and `last_merged_timestamp` in the manifest (read from `detected_manifest_file`) and saves it to `merged_manifest_file`.
-*   **Merge Log**: Records every pairwise comparison (whether a match or not) along with similarity scores and relevant IDs into `merge_results_file`. This log is crucial for the review app and for caching results to avoid re-computation.
+*   **Merge Log**: Records each pairwise comparison (whether a match or not) along with similarity scores and relevant IDs into `merge_results_file`. This log facilitates merge review and is used to avoid recomparisons.
 
 ### 4. Merge Review (`review_merges_app.py`)
 
@@ -108,16 +107,16 @@ The workflow is divided into several stages, each handled by a specific Python s
         *   Unmerged (Multiple IDs) Status (showing horses that have multiple `canonical_id`s under the same name)
         *   Size ratio of the bounding box of the largest horse in the image to the next largest horse in the image. 
     *   **Image Modal**: Clicking on an image opens a larger view with detailed metadata (horse name, IDs, detection status, filename, email date, size ratio).
-*   **Output**: Saves the generated HTML files to the directory above the `data_root` specified in `config.yml`.
+*   **Output**: Saves the generated HTML files to `data_root` directory, specified in `config.yml`.
 
 ### 6. Calibration and Testing Notebook (`horse_id.ipynb`)
 *   **Purpose**: This Jupyter notebook is used for two primary functions:
     1.  **Calibration**: To train and calibrate the individual similarity matchers (e.g., `MatchLightGlue` with `SuperPointExtractor`) used within the `WildFusion` system. This process generates `.pkl` files containing `IsotonicCalibration` models, which are saved to the `calibration_dir`.
-    2.  **Testing**: To evaluate the performance of the configured `WildFusion` system on a held-out test set of horse images.
+    2.  **Testing**: To evaluate the performance of the configured `WildFusion` system on test set of horse images that is exclusive from the images used for calibration.
 *   **Workflow**:
     *   **Data Loading**:
-        *   Loads the `merged_manifest_file` (or another manifest specified for training/testing).
-        *   Creates a `WildlifeDataset` (custom `Horses` class) from the manifest, filtering for 'SINGLE' detected horses and excluding any marked as 'EXCLUDE'.
+        *   Loads the `merged_manifest_file`. 
+        *   Creates a `WildlifeDataset` (custom `Horses` class) from the manifest, filtering for 'SINGLE' detected horses.
     *   **Data Splitting**: Uses `wildlife_datasets.splits` (e.g., `DisjointSetSplit`, `ClosedSetSplit`) to divide the dataset into training and testing sets, and further splits the test set into query and database sets.
     *   **Matcher Definition**: Defines a dictionary of `SimilarityPipeline`s, each combining a feature extractor (e.g., `SuperPointExtractor`, `DeepFeatures` with `BVRA/wildlife-mega-L-384`) and a matcher (e.g., `MatchLightGlue`, `CosineSimilarity`), along with an `IsotonicCalibration` object.
     *   **Calibration Fitting/Loading**:
