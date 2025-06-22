@@ -10,27 +10,15 @@ import pickle
 import yaml
 import sys
 
-# os.environ['LOKY_MAX_CPU_COUNT'] = '1'
-# os.environ['JOBLIB_PREFER'] = 'threads'
-
-from joblib import parallel_backend
-
 from wildlife_datasets import datasets
 from wildlife_tools.inference import TopkClassifier
 import torchvision.transforms as T
 import timm
-from wildlife_tools.features import (
-    DeepFeatures,
-    SuperPointExtractor,
-    AlikedExtractor,
-    DiskExtractor,
-    SiftExtractor,
-)
+from wildlife_tools.features import DeepFeatures
 from wildlife_tools.data import ImageDataset
 from wildlife_tools.similarity import CosineSimilarity, MatchLightGlue
-from wildlife_tools.similarity.wildfusion import SimilarityPipeline, WildFusion
+from wildlife_tools.similarity.wildfusion import SimilarityPipeline
 from wildlife_tools.similarity.calibration import IsotonicCalibration
-from wildlife_datasets import splits # For DisjointSetSplit
 
 # --- Configuration ---
 CONFIG_FILE = 'config.yml'
@@ -39,7 +27,7 @@ CONFIG_FILE = 'config.yml'
 class Horses(datasets.WildlifeDataset):
     def __init__(self, root_dir, manifest_file_path):
         self.manifest_file_path = manifest_file_path
-        super().__init__(root_dir)
+        super().__init__(root_dir, check_files=False)
 
     def create_catalogue(self) -> pd.DataFrame:
         """Create catalogue from manifest file"""
@@ -87,77 +75,6 @@ def setup_paths(config):
         print(f"Error setting up paths from config: {e}")
         sys.exit(1)
 
-def initialize_matchers_and_priority(calibration_dir):
-    matchers = {
-        'lightglue_superpoint': SimilarityPipeline(
-            matcher=MatchLightGlue(features='superpoint'),
-            extractor=SuperPointExtractor(),
-            transform=T.Compose([T.Resize([512, 512]), T.ToTensor()]),
-            calibration=IsotonicCalibration()
-        ),
-        'lightglue_aliked': SimilarityPipeline(
-            matcher=MatchLightGlue(features='aliked'),
-            extractor=AlikedExtractor(),
-            transform=T.Compose([T.Resize([512, 512]), T.ToTensor()]),
-            calibration=IsotonicCalibration()
-        ),
-        'lightglue_disk': SimilarityPipeline(
-            matcher=MatchLightGlue(features='disk'),
-            extractor=DiskExtractor(),
-            transform=T.Compose([T.Resize([512, 512]), T.ToTensor()]),
-            calibration=IsotonicCalibration()
-        ),
-        'lightglue_sift': SimilarityPipeline(
-            matcher=MatchLightGlue(features='sift'),
-            extractor=SiftExtractor(),
-            transform=T.Compose([T.Resize([512, 512]), T.ToTensor()]),
-            calibration=IsotonicCalibration()
-        ),
-    }
-    priority_matcher = SimilarityPipeline(
-        matcher=CosineSimilarity(),
-        extractor=DeepFeatures(
-            model=timm.create_model(
-                'hf-hub:BVRA/wildlife-mega-L-384',
-                num_classes=0,
-                pretrained=True
-            )
-        ),
-        transform=T.Compose([
-            T.Resize(size=(384, 384)),
-            T.ToTensor(),
-            T.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)),
-        ]),
-    )
-
-    all_pipelines_to_calibrate = {**matchers}
-
-    print("Loading calibrations...")
-    all_loaded_successfully = True
-    for name, pipeline_instance in all_pipelines_to_calibrate.items():
-        cal_file = os.path.join(calibration_dir, f"{name}.pkl")
-        if os.path.exists(cal_file):
-            print(f"Loading calibration: {cal_file}")
-            try:
-                with open(cal_file, 'rb') as f:
-                    pipeline_instance.calibration = pickle.load(f)
-                    pipeline_instance.calibration_done = True
-            except Exception as e:
-                print(f"Error loading calibration {cal_file}: {e}")
-                all_loaded_successfully = False
-        else:
-            print(f"Missing calibration: {cal_file}")
-            pipeline_instance.calibration = None # Ensure it's None if not loaded
-            pipeline_instance.calibration_done = False
-            all_loaded_successfully = False
-            
-    if not all_loaded_successfully:
-        print("\nWarning: Not all calibrations were loaded. WildFusion might not perform optimally or may require fitting.")
-        print("Consider running the calibration part of the notebook first.")
-
-    return matchers, priority_matcher
-
-
 def identify_horse(image_url):
     config = load_config()
     image_dir, manifest_file, calibration_dir, features_dir = setup_paths(config)
@@ -176,12 +93,12 @@ def identify_horse(image_url):
         sys.exit(1)
 
     print("Initializing Horse dataset...")
-    horses_dataset_obj = Horses(image_dir, manifest_file_path=manifest_file)
+    horses_dataset_obj = Horses(None, manifest_file_path=manifest_file)
     horses_df_all = horses_dataset_obj.create_catalogue()
     if horses_df_all.empty:
         print("Error: The horse catalogue is empty. Check manifest file and Horses class.")
         sys.exit(1)
-        
+
     dataset_database = ImageDataset(horses_df_all, horses_dataset_obj.root)
 
     print(f"Downloading image from {image_url}...")
