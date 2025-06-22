@@ -10,6 +10,7 @@ paths:
   # Directory for pre-trained models and calibrations
   calibration_dir: "{data_root}/calibrations"
   temp_dir: "{data_root}/tmp"
+  features_dir: "{data_root}/features"
   # Output file for the merged manifest
   merged_manifest_file: "{data_root}/horse_photos_manifest_merged.csv"
   merge_results_file: "{data_root}/merge_results.csv" # Renamed from similarity_log_file
@@ -36,6 +37,7 @@ detection:
 similarity:
   # The threshold for determining if two groups of photos represent the same horse.
   # A lower value means more likely to merge (less sensitive to differences).
-  threshold: 0.203
+  merge_threshold: 0.203
   # The merge script will read from the detected_manifest_file.
   # This ensures it only works on data that has been processed by the detector.
+  inference_threshold: 0.8

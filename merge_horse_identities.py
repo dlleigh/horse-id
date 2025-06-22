@@ -30,7 +30,7 @@ INPUT_MANIFEST_FILE = config['detection']['detected_manifest_file'].format(data_
 OUTPUT_MANIFEST_FILE = config['paths']['merged_manifest_file'].format(data_root=DATA_ROOT)
 CALIBRATION_DIR = config['paths']['calibration_dir'].format(data_root=DATA_ROOT) # Keep for WildFusion
 MERGE_RESULTS_FILE = config['paths']['merge_results_file'].format(data_root=DATA_ROOT) # New name
-SIMILARITY_THRESHOLD = config['similarity']['threshold']
+SIMILARITY_THRESHOLD = config['similarity']['merge_threshold']
 
 
 def load_wildfusion_system():
