@@ -41,3 +41,7 @@ similarity:
   # The merge script will read from the detected_manifest_file.
   # This ensures it only works on data that has been processed by the detector.
   inference_threshold: 0.8
+
+# --- S3 Settings ---
+s3:
+  bucket_name: "horse-id-bucket" # Replace with your actual S3 bucket name

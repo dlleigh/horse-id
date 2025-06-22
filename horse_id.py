@@ -9,6 +9,8 @@ import tempfile
 import pickle
 import yaml
 import sys
+import boto3
+from botocore.exceptions import ClientError
 
 from wildlife_datasets import datasets
 from wildlife_tools.inference import TopkClassifier
@@ -60,10 +62,11 @@ def load_config():
 
 def setup_paths(config):
     try:
-        data_root = os.path.expanduser(config['paths']['data_root'])
+        data_root = os.path.join(os.getcwd(),'horse-id-data')
         manifest_file = config['paths']['merged_manifest_file'].format(data_root=data_root)
         features_dir = config['paths']['features_dir'].format(data_root=data_root)
-        return manifest_file, features_dir
+        s3_bucket_name = config['s3']['bucket_name']
+        return manifest_file, features_dir, s3_bucket_name
     except KeyError as e:
         print(f"Error: Missing path configuration for '{e}' in '{CONFIG_FILE}'.")
         sys.exit(1)
@@ -71,9 +74,51 @@ def setup_paths(config):
         print(f"Error setting up paths from config: {e}")
         sys.exit(1)
 
+def download_from_s3(s3_client, bucket_name, s3_key, local_path):
+    """Downloads a file from S3 if it doesn't exist locally."""
+    if os.path.exists(local_path):
+        print(f"  File already exists locally: {local_path}")
+        return True
+
+    print(f"  Downloading s3://{bucket_name}/{s3_key} to {local_path}...")
+    try:
+        # Ensure local directory exists
+        local_dir = os.path.dirname(local_path)
+        if local_dir and not os.path.exists(local_dir):
+            os.makedirs(local_dir)
+
+        s3_client.download_file(bucket_name, s3_key, local_path)
+        print("  Download complete.")
+        return True
+    except ClientError as e:
+        if e.response['Error']['Code'] == "404":
+            print(f"    ERROR: The file was not found in S3: s3://{bucket_name}/{s3_key}")
+        else:
+            print(f"    ERROR: Failed to download file from S3. Reason: {e}")
+        return False
+
 def identify_horse(image_url):
     config = load_config()
-    manifest_file, features_dir = setup_paths(config)
+    manifest_file, features_dir, s3_bucket_name = setup_paths(config)
+
+    # --- S3 Download Logic ---
+    print("\nChecking for required files from S3...")
+    s3_client = boto3.client('s3')
+
+    # 1. Download manifest file
+    manifest_s3_key = os.path.basename(manifest_file)
+    if not download_from_s3(s3_client, s3_bucket_name, manifest_s3_key, manifest_file):
+        print("Exiting: Could not retrieve manifest file.")
+        sys.exit(1)
+
+    # 2. Download features file
+    features_local_path = os.path.join(features_dir, 'database_deep_features.pkl')
+    # Construct S3 key based on upload script logic: features_dir_basename/filename
+    features_s3_key = os.path.join(os.path.basename(features_dir), 'database_deep_features.pkl').replace("\\", "/")
+    if not download_from_s3(s3_client, s3_bucket_name, features_s3_key, features_local_path):
+        print("Exiting: Could not retrieve features file.")
+        sys.exit(1)
+    print("--------------------------------------------")
 
     if not os.path.isfile(manifest_file):
         print(f"Error: MANIFEST_FILE '{manifest_file}' not found.")
@@ -155,6 +200,8 @@ def identify_horse(image_url):
                 found_above_threshold = True
         if not found_above_threshold:
             print(f"  No predictions found above the confidence threshold of {CONFIDENCE_THRESHOLD}.")
+            for pred, score in zip(predictions[0], scores[0]):
+                print(f"  identity: {pred}, Score: {score:.4f}")
         print("--------------------------------------------")
 
     finally:
