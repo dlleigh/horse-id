@@ -16,9 +16,7 @@ import torchvision.transforms as T
 import timm
 from wildlife_tools.features import DeepFeatures
 from wildlife_tools.data import ImageDataset
-from wildlife_tools.similarity import CosineSimilarity, MatchLightGlue
-from wildlife_tools.similarity.wildfusion import SimilarityPipeline
-from wildlife_tools.similarity.calibration import IsotonicCalibration
+from wildlife_tools.similarity import CosineSimilarity
 
 # --- Configuration ---
 CONFIG_FILE = 'config.yml'
@@ -63,11 +61,9 @@ def load_config():
 def setup_paths(config):
     try:
         data_root = os.path.expanduser(config['paths']['data_root'])
-        image_dir = config['paths']['dataset_dir'].format(data_root=data_root)
         manifest_file = config['paths']['merged_manifest_file'].format(data_root=data_root)
-        calibration_dir = config['paths']['calibration_dir'].format(data_root=data_root)
         features_dir = config['paths']['features_dir'].format(data_root=data_root)
-        return image_dir, manifest_file, calibration_dir, features_dir
+        return manifest_file, features_dir
     except KeyError as e:
         print(f"Error: Missing path configuration for '{e}' in '{CONFIG_FILE}'.")
         sys.exit(1)
@@ -77,16 +73,10 @@ def setup_paths(config):
 
 def identify_horse(image_url):
     config = load_config()
-    image_dir, manifest_file, calibration_dir, features_dir = setup_paths(config)
+    manifest_file, features_dir = setup_paths(config)
 
-    if not os.path.isdir(image_dir):
-        print(f"Error: IMAGE_DIR '{image_dir}' not found or not a directory.")
-        sys.exit(1)
     if not os.path.isfile(manifest_file):
         print(f"Error: MANIFEST_FILE '{manifest_file}' not found.")
-        sys.exit(1)
-    if not os.path.isdir(calibration_dir):
-        print(f"Error: CALIBRATION_DIR '{calibration_dir}' not found or not a directory.")
         sys.exit(1)
     if not os.path.isdir(features_dir):
         print(f"Error: FEATURES_DIR '{features_dir}' not found or not a directory.")
