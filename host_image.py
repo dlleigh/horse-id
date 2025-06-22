@@ -2,6 +2,7 @@ import sys
 import os
 from flask import Flask, send_file, abort
 
+from urllib.parse import urlparse, unquote
 app = Flask(__name__)
 
 # Global variable to store the image path
@@ -23,13 +24,26 @@ def main():
     global IMAGE_PATH
 
     if len(sys.argv) != 2:
-        print("Usage: python display_image_app.py <path_to_image_file>")
+        print("Usage: python host_image.py <path_to_image_file_or_uri>")
         sys.exit(1)
 
-    image_file_path = sys.argv[1]
+    input_path = sys.argv[1]
+    image_file_path = ""
+
+    # Check if the input is a file URI and parse it
+    if input_path.startswith('file:///'):
+        try:
+            parsed_url = urlparse(input_path)
+            # unquote handles URL-encoded characters like %20
+            image_file_path = unquote(parsed_url.path)
+        except Exception as e:
+            print(f"Error parsing file URI: {e}")
+            sys.exit(1)
+    else:
+        image_file_path = input_path
 
     if not os.path.isfile(image_file_path):
-        print(f"Error: The provided path '{image_file_path}' is not a file or does not exist.")
+        print(f"Error: The resolved path '{image_file_path}' is not a file or does not exist.")
         sys.exit(1)
 
     # Validate image type (optional, but good practice)
