@@ -62,7 +62,10 @@ def load_config():
 
 def setup_paths(config):
     try:
-        data_root = os.path.join(os.getcwd(),'horse-id-data')
+        # Use data_root from config, but allow override via an environment variable for Docker.
+        # This makes the script more portable.
+        data_root_config = os.environ.get('HORSE_ID_DATA_ROOT', config['paths']['data_root'])
+        data_root = os.path.expanduser(data_root_config)
         manifest_file = config['paths']['merged_manifest_file'].format(data_root=data_root)
         features_dir = config['paths']['features_dir'].format(data_root=data_root)
         s3_bucket_name = config['s3']['bucket_name']
@@ -216,5 +219,5 @@ if __name__ == "__main__":
     args = parser.parse_args()
     
     identify_horse(args.image_url)
-    os._exit(0)
-    #sys.exit(0)
+    #os._exit(0)
+    sys.exit(0)
