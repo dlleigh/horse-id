@@ -1,6 +1,8 @@
 # Horse Identity Matching System
 
-This system is designed to identify an individual horse based on its picture, using a database of labeled horse images that are collected from emails that contain these images as attachments. The system contains components which processes emails containing horse photos, detects horses in those photos, merges photos of the same horse from different emails into a single identity, as well as tools to review images and correct merges.
+This system is designed to identify an individual horse based on its picture, using a database of labeled horse images that are collected from emails that contain these images as attachments. The system contains components which processes emails containing horse photos, detects horses in those photos, merges photos of the same horse from different emails into a single identity, tools to review images and correct merges, and to extract features.
+
+SMS/MMS (via Twilio SMS Gateway) is the interface used for individual horse identification.  The user sends a MMS message containing a photo of a horse, and they get an SMS response containing the horse's identity.
 
 ## System Overview
 
@@ -12,6 +14,10 @@ The workflow is divided into several stages, each handled by a specific Python s
 4.  **Merge Review (`review_merges_app.py`)**: A web application that allows a user to review the automated merge decisions from `merge_horse_identities.py`, manually merge or un-merge identities, and correct any errors.
 5.  **Gallery Generation (`generate_gallery.py`)**: Creates interactive HTML galleries from the various manifest CSV files (base, detected, and merged), allowing for easy visual inspection and filtering of the image data at different stages of processing.
 6. **Calibration and Testing (`horse_id.ipynb`)**: Creates calibration files if none exist, evaluates model performance and creates the prediction results file for side-by-side comparison of test images and model predictions.
+7. **Feature Extraction (`extract_features.py`)**: Extracts features using [Wildlife-mega-L-384](https://huggingface.co/BVRA/MegaDescriptor-L-384).
+8. **Upload data (`upload_to_s3.py`)**: Uploads manifest and extracted features to s3.
+9. **AWS Lambda Function: (`horse_id.py`)**: Performs similarity comparison between the query image using pre-extracted features.
+
 
 ### Key Technologies and Frameworks
 
@@ -122,6 +128,54 @@ The workflow is divided into several stages, each handled by a specific Python s
     *   **Evaluation**: Uses a `KnnClassifier` to predict identities for the query set based on the similarity matrix and calculates the accuracy of the predictions.
     *   **Visualization**: Creates an HTML display of prediction results, showing test images alongside their predicted matches with similarity scores, color-coded based on whether the match was correct.
 
+### 7. Feature Extraction (`extract_features.py`)
+*   **Purpose**: To speed up similarity processing at runtime, pre-extract features from all database images.
+*   **Workflow**: Extracts features using [Wildlife-mega-L-384](https://huggingface.co/BVRA/MegaDescriptor-L-384).
+
+### 8. Upload Data (`upload_to_s3.py`)
+*   **Purpose**: Provide data required by `horse_id.py`
+*   **Workflow**: Uploads to s3 the pre-extracted features and the merged manifest to/from the locations defined in `config.yml`.
+
+### 9. AWS Lambda Function: (`horse_id.py`)
+*   **Purpose**: This script serves as the AWS Lambda function responsible for real-time horse identification from an image URL. It is designed to receive Twilio webhook requests, fetch image, perform similarity comparisons, and return results.
+*   **Containerized**: `Dockerfile` is used to create the `horse-id-lambda-image` docker image containing `horse_id.py`. The python dependencies listed in `horse-id-requirements.txt` are installed in the image.
+*   **Inputs**: The function expects an event payload from a Twilio MMS webhook containing a `MediaUrl0` field, which provides the URL of the image to be processed.
+*   **Process**:
+    *   **Configuration Loading**: Loads system configuration parameters from `config.yml`.
+    *   **Data Retrieval**: Downloads necessary data artifacts, specifically `merged_manifest.csv` and `database_deep_features.pkl` (pre-computed image features), from the Amazon S3 bucket specified in the configuration.
+    *   **Image Download**: Fetches the image from the `MediaUrl0` provided in the input event.
+    *   **Feature Extraction**: Extracts deep features from the downloaded image using `wildlife-mega-L-384`.
+    *   **Similarity Comparison**: Compares the extracted features of the query image against the loaded database of horse features.
+    *   **Identification**: Identifies horse identities most similar to the downloaded image.
+    *   **Confidence Thresholding**: Applies a configurable `inference_threshold` to determine if a predicted match is strong enough to be considered a positive identification.
+*   **Outputs**: Returns a Twilio Markup Language (TwiML) response, which includes the identification results (predicted horse names and their confidence scores) or an appropriate error message, to be sent back to the originating service as an SMS reply.
+
+### 10. Lambda Function Test Utility (`run_container.sh`)
+*   **Purpose:** Run the `horse-id-lambda-image` locally and send a test payload to simulate at Twilio webhook request.
+
+## User Interaction Flow
+
+1. User sends a photo of a horse to the system via MMS
+2. The SMS Gateway calls the ML Pipeline via webhook
+3. The ML Pipeline fetches the photo from the SMS Gateway
+4. The ML Pipeline identifies the identity of the horse in the photo
+5. The ML Pipeline returns the name of the horse and related metadata to the SMS Gateway
+6. The SMS Gateway returns the name of the horse and related metadata to the user via SMS.
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant Gateway as SMS/MMS Gateway (Twilio)
+    participant Backend as AWS Lambda Function
+
+    User->>Gateway: Sends horse image (MMS)
+    Gateway->>+Backend: API request (webhook)
+    Backend->>Gateway: Fetch Media
+    Gateway-->>Backend: Photo
+    Backend-->>-Gateway: Horse name & metadata
+    Gateway-->>User: Horse name & metadata (SMS)
+```
+
 ## CSV Files and Data Flow
 
 The system uses several CSV files to store and pass data between stages:
@@ -210,6 +264,8 @@ graph TD
 
 ```
 
+
+
 ## Setup and Configuration
 
 1.  **Clone the repository.**
@@ -217,7 +273,6 @@ graph TD
     ```bash
     pip install -r requirements.txt
     ```
-    (You'll need to create a `requirements.txt` file based on the imports in the Python scripts.)
 3.  **Configure Gmail API**:
     *   Follow Google's instructions to enable the Gmail API and download `credentials.json`.
     *   Place `credentials.json` in the root directory or update its path in `config.yml`.
@@ -228,7 +283,9 @@ graph TD
     *   Review `detection` settings (YOLO model, confidence, size ratio).
     *   Review `similarity` settings (threshold).
     *   Ensure `calibration_dir` points to where your WildFusion calibration files (`.pkl`) are (or will be) stored.
-5.  **Download YOLOv5 model weights**: The `multi_horse_detector.py` script will attempt to download them automatically via `torch.hub.load`.
+5.  **Configure AWS CLI**
+    *   Authenticate using `aws configure sso`
+    *   Set `AWS_PROFILE` environment variable accordingly
 
 ## Running the System
 
@@ -256,4 +313,49 @@ graph TD
     open one of the HTML files in your browser: `horse_gallery_base.html`, `horse_gallery_detected.html`, `horse_gallery_merged.html` 
     ```
 6. **Calibrate (optional) and Test Performance**:
+
     Run the `horse_id.ipynb` notebook
+
+7. **Extract Features**:
+    ```bash
+    python extract_features.py
+    ```
+
+8. **Upload data to S3**:
+
+    Authenticate to AWS, then
+    ```bash
+    python upload_to_s3.py
+    ```
+
+9. **Build Docker Image**:
+    ```bash
+    docker build -t horse-id-lambda-image .
+    ```
+
+10. **Test Locally**:
+    
+    1. Create web service to host image
+    ```bash
+    python host_image.py path_to_image.jpg
+    ```
+    or
+    ```bash
+    python host_image.py file:///path/to/image.jpg
+    ```
+    2. Set up AWS CLI 
+    3. Run container and send test payload:
+    ```bash
+    run_container.sh
+    ```
+
+## Deployment
+
+1. **Get auth token**:
+    ```bash
+    aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com
+    ```
+2. **Push docker image to registry**:
+    ```bash
+    docker push horse-id-lambda-image <ECR repository URI>
+    ```
