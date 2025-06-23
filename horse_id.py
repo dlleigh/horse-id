@@ -11,6 +11,12 @@ import yaml
 import sys
 import boto3
 from botocore.exceptions import ClientError
+import json # Added for JSON response
+
+# For logging in Lambda
+import logging
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
 
 from wildlife_datasets import datasets
 from wildlife_tools.inference import TopkClassifier
@@ -53,9 +59,9 @@ class Horses(datasets.WildlifeDataset):
 
 def load_config():
     if not os.path.exists(CONFIG_FILE):
-        print(f"Error: Configuration file '{CONFIG_FILE}' not found.")
-        print("Please ensure it's in the same directory as the script or provide the correct path.")
-        sys.exit(1)
+        logger.error(f"Error: Configuration file '{CONFIG_FILE}' not found.")
+        # In Lambda, we don't sys.exit directly from a helper, but let the handler return an error.
+        raise FileNotFoundError(f"Configuration file '{CONFIG_FILE}' not found.")
     with open(CONFIG_FILE, 'r') as f:
         config = yaml.safe_load(f)
     return config
@@ -71,19 +77,19 @@ def setup_paths(config):
         s3_bucket_name = config['s3']['bucket_name']
         return manifest_file, features_dir, s3_bucket_name
     except KeyError as e:
-        print(f"Error: Missing path configuration for '{e}' in '{CONFIG_FILE}'.")
-        sys.exit(1)
+        logger.error(f"Error: Missing path configuration for '{e}' in '{CONFIG_FILE}'.")
+        raise ValueError(f"Missing path configuration: {e}")
     except Exception as e:
-        print(f"Error setting up paths from config: {e}")
-        sys.exit(1)
+        logger.error(f"Error setting up paths from config: {e}")
+        raise RuntimeError(f"Error setting up paths: {e}")
 
 def download_from_s3(s3_client, bucket_name, s3_key, local_path):
     """Downloads a file from S3 if it doesn't exist locally."""
     if os.path.exists(local_path):
-        print(f"  File already exists locally: {local_path}")
+        logger.info(f"  File already exists locally: {local_path}")
         return True
 
-    print(f"  Downloading s3://{bucket_name}/{s3_key} to {local_path}...")
+    logger.info(f"  Downloading s3://{bucket_name}/{s3_key} to {local_path}...")
     try:
         # Ensure local directory exists
         local_dir = os.path.dirname(local_path)
@@ -91,55 +97,54 @@ def download_from_s3(s3_client, bucket_name, s3_key, local_path):
             os.makedirs(local_dir)
 
         s3_client.download_file(bucket_name, s3_key, local_path)
-        print("  Download complete.")
+        logger.info("  Download complete.")
         return True
     except ClientError as e:
         if e.response['Error']['Code'] == "404":
-            print(f"    ERROR: The file was not found in S3: s3://{bucket_name}/{s3_key}")
+            logger.error(f"    ERROR: The file was not found in S3: s3://{bucket_name}/{s3_key}")
         else:
-            print(f"    ERROR: Failed to download file from S3. Reason: {e}")
+            logger.error(f"    ERROR: Failed to download file from S3. Reason: {e}")
         return False
 
-def identify_horse(image_url):
+def process_image_for_identification(image_url):
+    """
+    Core logic to download image, extract features, and identify horse.
+    Returns a dictionary of prediction results.
+    """
     config = load_config()
     manifest_file, features_dir, s3_bucket_name = setup_paths(config)
 
     # --- S3 Download Logic ---
-    print("\nChecking for required files from S3...")
+    logger.info("Checking for required files from S3...")
     s3_client = boto3.client('s3')
 
     # 1. Download manifest file
     manifest_s3_key = os.path.basename(manifest_file)
     if not download_from_s3(s3_client, s3_bucket_name, manifest_s3_key, manifest_file):
-        print("Exiting: Could not retrieve manifest file.")
-        sys.exit(1)
+        raise RuntimeError("Could not retrieve manifest file.")
 
     # 2. Download features file
     features_local_path = os.path.join(features_dir, 'database_deep_features.pkl')
     # Construct S3 key based on upload script logic: features_dir_basename/filename
     features_s3_key = os.path.join(os.path.basename(features_dir), 'database_deep_features.pkl').replace("\\", "/")
     if not download_from_s3(s3_client, s3_bucket_name, features_s3_key, features_local_path):
-        print("Exiting: Could not retrieve features file.")
-        sys.exit(1)
-    print("--------------------------------------------")
+        raise RuntimeError("Could not retrieve features file.")
+    logger.info("--------------------------------------------")
 
     if not os.path.isfile(manifest_file):
-        print(f"Error: MANIFEST_FILE '{manifest_file}' not found.")
-        sys.exit(1)
+        raise FileNotFoundError(f"MANIFEST_FILE '{manifest_file}' not found.")
     if not os.path.isdir(features_dir):
-        print(f"Error: FEATURES_DIR '{features_dir}' not found or not a directory.")
-        sys.exit(1)
+        raise NotADirectoryError(f"FEATURES_DIR '{features_dir}' not found or not a directory.")
 
-    print("Initializing Horse dataset...")
+    logger.info("Initializing Horse dataset...")
     horses_dataset_obj = Horses(None, manifest_file_path=manifest_file)
     horses_df_all = horses_dataset_obj.create_catalogue()
     if horses_df_all.empty:
-        print("Error: The horse catalogue is empty. Check manifest file and Horses class.")
-        sys.exit(1)
+        raise ValueError("The horse catalogue is empty. Check manifest file and Horses class.")
 
     dataset_database = ImageDataset(horses_df_all, horses_dataset_obj.root)
 
-    print(f"Downloading image from {image_url}...")
+    logger.info(f"Downloading image from {image_url}...")
     try:
         response = requests.get(image_url, timeout=10)
         response.raise_for_status()
@@ -149,17 +154,15 @@ def identify_horse(image_url):
             Image.open(img_bytes).verify() # verify() checks for corruption
             img_bytes.seek(0) # Reset stream position after verify
         except (IOError, SyntaxError) as e:
-            print(f"Error: Downloaded content from {image_url} is not a valid image or is corrupted: {e}")
-            sys.exit(1)
+            raise ValueError(f"Downloaded content from {image_url} is not a valid image or is corrupted: {e}")
     except requests.exceptions.RequestException as e:
-        print(f"Error downloading image: {e}")
-        sys.exit(1)
+        raise RuntimeError(f"Error downloading image: {e}")
 
     with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp_file:
         tmp_file.write(img_bytes.getvalue())
         temp_image_path = tmp_file.name
     
-    print(f"Temporary image saved to: {temp_image_path}")
+    logger.info(f"Temporary image saved to: {temp_image_path}")
 
     try:
         query_df = pd.DataFrame([{
@@ -172,18 +175,18 @@ def identify_horse(image_url):
         transform = T.Compose([T.Resize([384, 384]), T.ToTensor()])
         dataset_query_single = ImageDataset(query_df, os.path.dirname(temp_image_path), transform=transform)
 
-        print("Extracting features for query image...")
+        logger.info("Extracting features for query image...")
 
         backbone = timm.create_model('hf-hub:BVRA/wildlife-mega-L-384', num_classes=0, pretrained=True)
         extractor = DeepFeatures(backbone)
         query_features = extractor(dataset_query_single)
 
         features_output_path = os.path.join(features_dir, 'database_deep_features.pkl')
-        print(f"Loading database features from {features_output_path}...")
+        logger.info(f"Loading database features from {features_output_path}...")
         with open(features_output_path, 'rb') as f:
             database_features = pickle.load(f)
 
-        print("Calculating similarity...")
+        logger.info("Calculating similarity...")
         similarity_function = CosineSimilarity()
         similarity = similarity_function(query_features, database_features)
         
@@ -195,22 +198,99 @@ def identify_horse(image_url):
         # Load the confidence threshold from the configuration
         CONFIDENCE_THRESHOLD = config['similarity']['inference_threshold']
 
-        print("\n--- Predictions above Confidence Threshold ---")
+        results = {
+            "status": "success",
+            "query_image_url": image_url,
+            "predictions": []
+        }
+        logger.info("\n--- Predictions above Confidence Threshold ---")        
         found_above_threshold = False
         for pred, score in zip(predictions[0], scores[0]):
             if score > CONFIDENCE_THRESHOLD:
-                print(f"  Predicted identity: {pred}, Score: {score:.4f}")
+                logger.info(f"  Predicted identity: {pred}, Score: {score:.4f}")
+                results["predictions"].append({"identity": pred, "score": round(score, 4), "above_threshold": True})
                 found_above_threshold = True
+            else:
+                results["predictions"].append({"identity": pred, "score": round(score, 4), "above_threshold": False})
         if not found_above_threshold:
-            print(f"  No predictions found above the confidence threshold of {CONFIDENCE_THRESHOLD}.")
-            for pred, score in zip(predictions[0], scores[0]):
-                print(f"  identity: {pred}, Score: {score:.4f}")
-        print("--------------------------------------------")
+            logger.info(f"  No predictions found above the confidence threshold of {CONFIDENCE_THRESHOLD}.")
+            logger.info("  Displaying top 5 predictions regardless of threshold:")
+            for pred_data in results["predictions"]:
+                logger.info(f"  identity: {pred_data['identity']}, Score: {pred_data['score']:.4f}")
+        logger.info("--------------------------------------------")
+        
+        return results
 
     finally:
         if os.path.exists(temp_image_path):
             os.remove(temp_image_path)
-            print(f"Cleaned up temporary image: {temp_image_path}")
+            logger.info(f"Cleaned up temporary image: {temp_image_path}")
+
+def lambda_handler(event, context):
+    """
+    AWS Lambda handler function for processing Twilio MMS webhooks.
+    """
+    logger.info(f"Received event: {json.dumps(event)}")
+
+    # Twilio MMS webhook payload typically sends data as application/x-www-form-urlencoded
+    # The 'event' dictionary will contain these form parameters.
+    # The image URL is usually in 'MediaUrl0'
+    image_url = event.get('MediaUrl0')
+    from_number = event.get('From')
+    to_number = event.get('To')
+    message_body = event.get('Body')
+
+    if not image_url:
+        logger.error("No image URL found in Twilio MMS webhook payload.")
+        return {
+            'statusCode': 400,
+            'headers': {
+                'Content-Type': 'text/xml' # Twilio expects TwiML for responses
+            },
+            'body': '<Response><Message>Error: No image found in your MMS message.</Message></Response>'
+        }
+
+    try:
+        prediction_results = process_image_for_identification(image_url)
+        
+        # Construct a response message for Twilio
+        response_message = "Horse Identification Results:\n"
+        found_match = False
+        for pred in prediction_results["predictions"]:
+            if pred["above_threshold"]:
+                response_message += f"  Match: {pred['identity']} (Score: {pred['score']})\n"
+                found_match = True
+            else:
+                response_message += f"  Possible: {pred['identity']} (Score: {pred['score']})\n"
+        
+        if not found_match:
+            response_message = "No strong match found. Top predictions:\n"
+            for pred in prediction_results["predictions"]:
+                response_message += f"  {pred['identity']} (Score: {pred['score']})\n"
+
+        # Twilio expects TwiML (Twilio Markup Language) for responses
+        # This sends an SMS back to the sender
+        twilio_response_body = f'<Response><Message>{response_message}</Message></Response>'
+
+        return {
+            'statusCode': 200,
+            'headers': {
+                'Content-Type': 'text/xml'
+            },
+            'body': twilio_response_body
+        }
+
+    except Exception as e:
+        logger.exception(f"An error occurred during horse identification: {e}")
+        error_message = f"An internal error occurred: {e}. Please try again later."
+        twilio_error_response_body = f'<Response><Message>Error: {error_message}</Message></Response>'
+        return {
+            'statusCode': 500,
+            'headers': {
+                'Content-Type': 'text/xml'
+            },
+            'body': twilio_error_response_body
+        }
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Identify a horse from an image URL.")
@@ -218,6 +298,17 @@ if __name__ == "__main__":
     
     args = parser.parse_args()
     
-    identify_horse(args.image_url)
-    #os._exit(0)
+    # Simulate a Lambda event for local testing
+    mock_event = {
+        'MediaUrl0': args.image_url,
+        'From': '+1234567890',
+        'To': '+1987654321',
+        'Body': 'Test MMS'
+    }
+    mock_context = {} # Context object is usually empty for simple tests
+
+    response = lambda_handler(mock_event, mock_context)
+    print("\n--- Lambda Response (simulated) ---")
+    print(json.dumps(response, indent=2))
+
     sys.exit(0)

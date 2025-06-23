@@ -27,4 +27,4 @@ COPY horse_id.py ${LAMBDA_TASK_ROOT}/
 COPY config.yml ${LAMBDA_TASK_ROOT}/
 
 # Set the CMD to your handler (app.lambda_handler)
-CMD [ "app.lambda_handler" ]
+CMD [ "horse_id.lambda_handler" ]
