@@ -9,7 +9,7 @@ WORKDIR /var/task
 
 # Install system dependencies required by OpenCV (cv2)
 # These are common libraries for graphics and X11 that are not in minimal Lambda images.
-# RUN dnf install -y mesa-libGL libXext libSM libICE libXrender fontconfig git
+RUN dnf install -y mesa-libGL libXext libSM libICE libXrender fontconfig git
 
 
 # Copy your requirements file and install dependencies
