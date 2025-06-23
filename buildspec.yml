@@ -15,6 +15,7 @@ env:
 phases:
   pre_build:
     commands:
+      - echo "starting build on lambda-debugging branch"
       # Log in to Amazon ECR
       - echo "Logging in to Amazon ECR..."
       - aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com

@@ -9,7 +9,7 @@ WORKDIR /var/task
 
 # Install system dependencies required by OpenCV (cv2)
 # These are common libraries for graphics and X11 that are not in minimal Lambda images.
-RUN dnf install -y mesa-libGL libXext libSM libICE libXrender fontconfig git
+# RUN dnf install -y mesa-libGL libXext libSM libICE libXrender fontconfig git
 
 
 # Copy your requirements file and install dependencies
@@ -18,9 +18,10 @@ COPY horse-id-requirements.txt .
 # The AWS Lambda runtime automatically adds this directory to the PYTHONPATH.
 # The original --target "${LAMBDA_RUNTIME_DIR}" installed packages to /var/runtime,
 # which is not in the PYTHONPATH, making them unavailable to the Python interpreter.
-RUN pip install -r horse-id-requirements.txt --target "${LAMBDA_TASK_ROOT}"
+# RUN pip install -r horse-id-requirements.txt --target "${LAMBDA_TASK_ROOT}"
+RUN pip install pandas numpy requests Pillow PyYAML boto3 twilio --target "${LAMBDA_TASK_ROOT}"
 
-RUN python -c "import timm; timm.create_model('hf-hub:BVRA/wildlife-mega-L-384', num_classes=0, pretrained=True)"
+# RUN python -c "import timm; timm.create_model('hf-hub:BVRA/wildlife-mega-L-384', num_classes=0, pretrained=True)"
 
 # Copy your application code and config file
 COPY horse_id.py ${LAMBDA_TASK_ROOT}/
