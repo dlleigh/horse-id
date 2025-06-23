@@ -1,0 +1,46 @@
+version: 0.2
+
+# Define environment variables for the build process
+env:
+  variables:
+    # Replace with your AWS account ID and desired region
+    AWS_ACCOUNT_ID: "685175429625"
+    AWS_DEFAULT_REGION: "us-east-2" # Or your specific region
+    # The name of your ECR repository
+    IMAGE_REPO_NAME: "horse-id-lambda-repo"
+    # Name used for the container when associated with other AWS services (e.g., ECS, CodeDeploy)
+    # Not strictly needed if only used for Lambda, but good practice.
+    CONTAINER_NAME: "horse-id-lambda-function" 
+
+phases:
+  pre_build:
+    commands:
+      # Log in to Amazon ECR
+      - echo "Logging in to Amazon ECR..."
+      - aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com
+      # Define the full URI for the ECR repository
+      - REPOSITORY_URI=$AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$IMAGE_REPO_NAME
+
+  build:
+    commands:
+      - echo "Build started on $(date)"
+      - echo "Building the Docker image..."
+      # Build the Docker image from the Dockerfile in the current directory (.)
+      - docker build -t $IMAGE_REPO_NAME .
+      # Tag the image with the full ECR repository URI
+      - docker tag $IMAGE_REPO_NAME:latest $REPOSITORY_URI:latest
+
+  post_build:
+    commands:
+      - echo "Build completed on $(date)"
+      - echo "Pushing the Docker image to ECR..."
+      - docker push $REPOSITORY_URI:latest
+      # Optional: Create an image definitions file. Useful if integrating with CodeDeploy
+      # For Lambda, you'll directly specify the ECR URI when updating the Lambda function.
+      # However, some CI/CD pipelines (e.g., CodePipeline) might use this.
+      - printf '[{"name":"%s","imageUri":"%s"}]' $CONTAINER_NAME $REPOSITORY_URI:latest > imagedefinitions.json
+
+artifacts:
+  # Specify any files that CodeBuild should output after the build (e.g., for CodeDeploy)
+  files:
+    - imagedefinitions.json
