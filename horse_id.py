@@ -230,67 +230,14 @@ def lambda_handler(event, context):
     """
     AWS Lambda handler function for processing Twilio MMS webhooks.
     """
-    logger.info(f"Received event: {json.dumps(event)}")
 
-    # Twilio MMS webhook payload typically sends data as application/x-www-form-urlencoded
-    # The 'event' dictionary will contain these form parameters.
-    # The image URL is usually in 'MediaUrl0'
-    image_url = event.get('MediaUrl0')
-    from_number = event.get('From')
-    to_number = event.get('To')
-    message_body = event.get('Body')
-
-    if not image_url:
-        logger.error("No image URL found in Twilio MMS webhook payload.")
-        return {
-            'statusCode': 400,
-            'headers': {
-                'Content-Type': 'text/xml' # Twilio expects TwiML for responses
-            },
-            'body': '<Response><Message>Error: No image found in your MMS message.</Message></Response>'
-        }
-
-    try:
-        prediction_results = process_image_for_identification(image_url)
-        
-        # Construct a response message for Twilio
-        response_message = "Horse Identification Results:\n"
-        found_match = False
-        for pred in prediction_results["predictions"]:
-            if pred["above_threshold"]:
-                response_message += f"  Match: {pred['identity']} (Score: {pred['score']})\n"
-                found_match = True
-            else:
-                response_message += f"  Possible: {pred['identity']} (Score: {pred['score']})\n"
-        
-        if not found_match:
-            response_message = "No strong match found. Top predictions:\n"
-            for pred in prediction_results["predictions"]:
-                response_message += f"  {pred['identity']} (Score: {pred['score']})\n"
-
-        # Twilio expects TwiML (Twilio Markup Language) for responses
-        # This sends an SMS back to the sender
-        twilio_response_body = f'<Response><Message>{response_message}</Message></Response>'
-
-        return {
-            'statusCode': 200,
-            'headers': {
-                'Content-Type': 'text/xml'
-            },
-            'body': twilio_response_body
-        }
-
-    except Exception as e:
-        logger.exception(f"An error occurred during horse identification: {e}")
-        error_message = f"An internal error occurred: {e}. Please try again later."
-        twilio_error_response_body = f'<Response><Message>Error: {error_message}</Message></Response>'
-        return {
-            'statusCode': 500,
-            'headers': {
-                'Content-Type': 'text/xml'
-            },
-            'body': twilio_error_response_body
-        }
+    return {
+        'statusCode': 200,
+        'headers': {
+            'Content-Type': 'text/xml'
+        },
+        'body': "hello world"
+    }
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Identify a horse from an image URL.")
