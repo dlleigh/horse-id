@@ -44,4 +44,4 @@ similarity:
 
 # --- S3 Settings ---
 s3:
-  bucket_name: "horse-id-bucket" # Replace with your actual S3 bucket name
+  bucket_name: "horse-id-data" # Replace with your actual S3 bucket name

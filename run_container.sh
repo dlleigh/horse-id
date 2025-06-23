@@ -17,7 +17,7 @@ echo "Starting Lambda container in background..."
 podman run -d --rm -p 8080:8080 \
   -v ~/.aws:/root/.aws \
   -e HORSE_ID_DATA_ROOT="/data" \
-  -e AWS_PROFILE=SystemAdministrator-517695827388 \
+  -e AWS_PROFILE=${AWS_PROFILE} \
   --name horse-id-lambda-container \
   horse-id-lambda-image
 
