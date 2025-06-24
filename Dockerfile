@@ -18,8 +18,8 @@ COPY horse-id-requirements.txt .
 # The AWS Lambda runtime automatically adds this directory to the PYTHONPATH.
 # The original --target "${LAMBDA_RUNTIME_DIR}" installed packages to /var/runtime,
 # which is not in the PYTHONPATH, making them unavailable to the Python interpreter.
-# RUN pip install -r horse-id-requirements.txt --target "${LAMBDA_TASK_ROOT}"
-RUN pip install pandas numpy requests Pillow PyYAML boto3 twilio --target "${LAMBDA_TASK_ROOT}"
+RUN pip install -r horse-id-requirements.txt --target "${LAMBDA_TASK_ROOT}"
+# RUN pip install pandas numpy requests Pillow PyYAML boto3 twilio --target "${LAMBDA_TASK_ROOT}"
 
 # RUN python -c "import timm; timm.create_model('hf-hub:BVRA/wildlife-mega-L-384', num_classes=0, pretrained=True)"
 
