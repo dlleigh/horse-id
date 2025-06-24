@@ -150,8 +150,16 @@ The workflow is divided into several stages, each handled by a specific Python s
     *   **Confidence Thresholding**: Applies a configurable `inference_threshold` to determine if a predicted match is strong enough to be considered a positive identification.
 *   **Outputs**: Returns a Twilio Markup Language (TwiML) response, which includes the identification results (predicted horse names and their confidence scores) or an appropriate error message, to be sent back to the originating service as an SMS reply.
 
-### 10. Lambda Function Test Utility (`run_container.sh`)
-*   **Purpose:** Run the `horse-id-lambda-image` locally and send a test payload to simulate at Twilio webhook request.
+### 10. Lambda Function Test Utility (`test_lambda_app.py`)
+*   **Purpose**: This interactive web application provides a user-friendly way to test the `horse-id-lambda-image` container locally. It replaces the static `run_container.sh` script.
+*   **Framework**: Built with Streamlit.
+*   **Workflow**:
+    1.  **Image Upload**: The user uploads a horse image through their browser.
+    2.  **Image Hosting**: The application starts a temporary, local web server to host the uploaded image at a URL accessible to the container (e.g., `http://host.containers.internal:8001/...`).
+    3.  **Container Management**: When the "Identify Horse" button is clicked, the app uses `podman` (or `docker`) to start the `horse-id-lambda-image` container in the background.
+    4.  **Invocation**: It constructs and sends a simulated Twilio webhook payload (as a JSON event) to the container's invocation endpoint (`http://localhost:8080/...`). The `MediaUrl0` in the payload points to the locally hosted image.
+    5.  **Display Results**: The response from the Lambda function (e.g., the TwiML XML) is captured and displayed in the web interface.
+    6.  **Cleanup**: The app automatically stops the container and shuts down the image server after the process is complete.
 
 ## User Interaction Flow
 
@@ -264,8 +272,6 @@ graph TD
 
 ```
 
-
-
 ## Setup and Configuration
 
 1.  **Clone the repository.**
@@ -334,20 +340,12 @@ graph TD
     ```
 
 10. **Test Locally**:
-    
-    1. Create web service to host image
+
+    Run the interactive test application:
     ```bash
-    python host_image.py path_to_image.jpg
+    streamlit run test_lambda_app.py
     ```
-    or
-    ```bash
-    python host_image.py file:///path/to/image.jpg
-    ```
-    2. Set up AWS CLI 
-    3. Run container and send test payload:
-    ```bash
-    run_container.sh
-    ```
+    This will open a web page in your browser. Upload an image and click the "Identify Horse" button to start the test.
 
 ## Deployment
 
