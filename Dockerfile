@@ -21,11 +21,12 @@ RUN pip install \
     --no-cache-dir \ 
     --target "${LAMBDA_TASK_ROOT}"
 
-RUN python -c "import timm; timm.create_model('hf-hub:BVRA/wildlife-mega-L-384', num_classes=0, pretrained=True)"
+# Pre-download the model into a specific cache directory within the image.
+RUN python -c "import timm; timm.create_model('hf-hub:BVRA/wildlife-mega-L-384', pretrained=True, cache_dir='/tmp/model_cache')"
 
 # Copy your application code and config file
 COPY horse_id.py ${LAMBDA_TASK_ROOT}/
 COPY config.yml ${LAMBDA_TASK_ROOT}/
 
 # Set the CMD to your handler (app.lambda_handler)
-CMD [ "horse_id.lambda_handler" ]
+CMD [ "horse_id.horse_id_processor_handler" ]

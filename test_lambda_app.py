@@ -14,10 +14,13 @@ import queue
 import requests
 
 # --- Configuration ---
-CONTAINER_NAME = "horse-id-lambda-container"
 IMAGE_NAME = "horse-id-lambda-image"
-HOST_PORT = 8080  # Port on the host to map to the container's 8080
+RESPONDER_CONTAINER_NAME = "horse-id-responder-container"
+PROCESSOR_CONTAINER_NAME = "horse-id-processor-container"
+RESPONDER_HOST_PORT = 8080
+PROCESSOR_HOST_PORT = 8081
 IMAGE_SERVER_PORT = 8001 # Port for our local image hosting server
+
 # Special DNS name that resolves to the host machine from within the container
 # For Docker Desktop: 'host.docker.internal'
 # For Podman on Linux: 'host.containers.internal'
@@ -53,12 +56,13 @@ class ImageServer(threading.Thread):
 # --- Container Log Streamer ---
 class ContainerLogStreamer(threading.Thread):
     """A thread to stream logs from a Podman container."""
-    def __init__(self, container_name, log_queue, stop_event):
+    def __init__(self, container_name, log_queue, stop_event, prefix=""):
         super().__init__()
         self.container_name = container_name
         self.log_queue = log_queue
         self.stop_event = stop_event
         self.process = None
+        self.prefix = prefix
 
     def run(self):
         try:
@@ -74,7 +78,7 @@ class ContainerLogStreamer(threading.Thread):
             for line in iter(self.process.stdout.readline, ''):
                 if self.stop_event.is_set():
                     break
-                self.log_queue.put(line)
+                self.log_queue.put(self.prefix + line)
             self.process.stdout.close()
             self.process.wait()
         except Exception as e:
@@ -93,14 +97,14 @@ st.set_page_config(layout="wide")
 st.title("Horse ID Lambda Test App")
 
 st.write("""
-This app provides an interactive way to test the `horse-id-lambda-image`.
+This app tests the asynchronous two-lambda flow locally.
 1.  **Enter the path** to an image of a horse on your local machine.
 2.  The app will **host this image** on a temporary local web server.
-3.  Click **"Identify Horse"** to:
-    - Start the container.
-    - Send a simulated Twilio webhook request to the container.
-    - The request will point to the URL of the image hosted by this app.
-4.  The **response** from the Lambda function will be displayed below.
+3.  Click **"Identify Horse"** to simulate the full asynchronous flow:
+    - Start two containers: one for the `responder` and one for the `processor`.
+    - Invoke the `responder`, which returns an immediate confirmation.
+    - The app then invokes the `processor` with the same data.
+4.  Logs from both containers are streamed below, showing the entire process.
 """)
 
 image_path_input = st.text_input(
@@ -127,10 +131,20 @@ if image_path_input: # Only process if input is not empty
 
 if resolved_image_path: # Only proceed if a path was successfully resolved
     if os.path.isfile(resolved_image_path):
-        st.image(resolved_image_path, caption="Selected Image", width=500)
+        st.image(resolved_image_path, caption="Selected Image", width=300)
     else:
         st.warning(f"File path '{resolved_image_path}' is not valid or does not point to a file. Please check the path.")
         resolved_image_path = None # Clear if invalid
+
+twilio_from_number = st.text_input(
+    "Twilio 'From' Phone Number (e.g., +1234567890)",
+    value="+15555555555" # Default value
+)
+
+twilio_to_number = st.text_input(
+    "Twilio 'To' Phone Number (e.g., +1987654321 - your Twilio number)",
+    value="+15555555556" # Default value
+)
 
 
 # Initialize session state for logs and streamer management
@@ -168,85 +182,120 @@ if st.button("Identify Horse"):
 
         result_area = st.empty()
 
-        log_streamer_thread = None
-        log_streamer_stop_event = threading.Event()
+        responder_log_streamer = None
+        processor_log_streamer = None
+        responder_stop_event = threading.Event()
+        processor_stop_event = threading.Event()
+
         try:
-            # 2. Start the Lambda container
-            st.info("Starting Lambda container...")
+            # 2. Start both Lambda containers
+            st.info("Starting Responder and Processor containers...")
             aws_profile = os.environ.get("AWS_PROFILE", "")
+            twilio_sid = os.environ.get("TWILIO_ACCOUNT_SID", "ACxxxxxxxx_DUMMY_SID_xxxxxxxx")
+            twilio_token = os.environ.get("TWILIO_AUTH_TOKEN", "xxxxxxxx_DUMMY_TOKEN_xxxxxxxx")
             if not aws_profile:
                 st.warning("AWS_PROFILE environment variable not set. AWS commands might fail if not configured otherwise.")
 
-            start_cmd = [
+            # Start Processor Container
+            processor_start_cmd = [
                 "podman", "run", "-d", "--rm",
-                "-p", f"{HOST_PORT}:8080",
+                "-p", f"{PROCESSOR_HOST_PORT}:8080",
+                "--memory", "6g", # Allocate more memory for the processor
                 "-v", f"{os.path.expanduser('~')}/.aws:/root/.aws",
                 "-e", "HORSE_ID_DATA_ROOT=/data",
                 "-e", f"AWS_PROFILE={aws_profile}",
-                "--name", CONTAINER_NAME,
-                IMAGE_NAME
+                "-e", f"TWILIO_ACCOUNT_SID={twilio_sid}",
+                "-e", f"TWILIO_AUTH_TOKEN={twilio_token}",
+                "--name", PROCESSOR_CONTAINER_NAME,
+                IMAGE_NAME,
+                "horse_id.horse_id_processor_handler"
             ]
-            container_id = subprocess.check_output(start_cmd).decode('utf-8').strip()
-            st.success(f"Container '{CONTAINER_NAME}' started with ID: {container_id[:12]}")
+            subprocess.check_call(processor_start_cmd)
+            st.success(f"Container '{PROCESSOR_CONTAINER_NAME}' started on port {PROCESSOR_HOST_PORT}.")
 
-            # Start log streamer
-            log_streamer_thread = ContainerLogStreamer(
-                CONTAINER_NAME, st.session_state.log_queue, log_streamer_stop_event
+            # Start Responder Container
+            responder_start_cmd = [
+                "podman", "run", "-d", "--rm",
+                "-p", f"{RESPONDER_HOST_PORT}:8080",
+                "-e", "PROCESSOR_LAMBDA_NAME=horse-id-processor-local-test", # Dummy name for local test
+                "--name", RESPONDER_CONTAINER_NAME,
+                IMAGE_NAME,
+                "horse_id.twilio_webhook_handler"
+            ]
+            subprocess.check_call(responder_start_cmd)
+            st.success(f"Container '{RESPONDER_CONTAINER_NAME}' started on port {RESPONDER_HOST_PORT}.")
+
+            # Start log streamers for both
+            responder_log_streamer = ContainerLogStreamer(
+                RESPONDER_CONTAINER_NAME, st.session_state.log_queue, responder_stop_event, prefix="[RESPONDER] "
             )
-            log_streamer_thread.start()
-            st.info("Log streaming started...")
-
-            # Give container and log streamer a moment to start and produce initial logs
+            processor_log_streamer = ContainerLogStreamer(
+                PROCESSOR_CONTAINER_NAME, st.session_state.log_queue, processor_stop_event, prefix="[PROCESSOR] "
+            )
+            responder_log_streamer.start()
+            processor_log_streamer.start()
+            st.info("Log streaming started for both containers...")
             time.sleep(2)
             update_logs()
 
-            # 3. Construct and send the invocation request
-            with st.spinner("Waiting for container to initialize and invoking Lambda function..."):
-                time.sleep(3) # Additional wait for runtime inside container
-
+            # 3. Construct the payload
             image_url = f"http://{CONTAINER_HOST_DNS}:{IMAGE_SERVER_PORT}/{urllib.parse.quote(image_filename)}"
-            st.info(f"Container will fetch image from: {image_url}")
-
-            # Guess the content type of the image file
-            content_type, _ = mimetypes.guess_type(resolved_image_path) # Use resolved path
-            if content_type is None:
-                content_type = 'application/octet-stream' # A generic default
+            content_type, _ = mimetypes.guess_type(resolved_image_path)
+            content_type = content_type or 'application/octet-stream'
 
             mock_twilio_data = urllib.parse.urlencode({
                 "SmsMessageSid": "SM_streamlit_test_sid", "AccountSid": "AC_streamlit_test_sid",
-                "From": "+15555555555", "To": "+15555555556", "Body": "Image from Streamlit test app.",
+                "From": twilio_from_number, "To": twilio_to_number, "Body": "Image from Streamlit test app.",
                 "NumMedia": "1", "MediaUrl0": image_url, "MediaContentType0": content_type
             })
-
             lambda_payload = {
                 "body": mock_twilio_data, "headers": {"Content-Type": "application/x-www-form-urlencoded"},
                 "httpMethod": "POST", "isBase64Encoded": False, "path": "/webhook"
             }
 
-            response = requests.post(f"http://localhost:{HOST_PORT}/2015-03-31/functions/function/invocations", json=lambda_payload, timeout=90)
-            update_logs() # Update logs after invocation
+            # 4. Invoke Responder
+            with st.spinner("Step 1: Invoking Responder..."):
+                st.info(f"Sending request to Responder at http://localhost:{RESPONDER_HOST_PORT}")
+                responder_response = requests.post(f"http://localhost:{RESPONDER_HOST_PORT}/2015-03-31/functions/function/invocations", json=lambda_payload, timeout=30)
+                update_logs()
+                result_area.subheader("Responder Response")
+                result_area.code(responder_response.json().get('body', 'No body in response'), language='xml')
 
-            result_area.subheader("Lambda Function Response")
-            if response.json().get('headers', {}).get('Content-Type') == 'text/xml':
-                result_area.code(response.json()['body'], language='xml')
-            else:
-                result_area.json(response.json())
+            # 5. Invoke Processor (simulating the async call)
+            with st.spinner("Step 2: Simulating async invocation of Processor..."):
+                st.info(f"Sending same payload to Processor at http://localhost:{PROCESSOR_HOST_PORT}")
+                processor_response = requests.post(f"http://localhost:{PROCESSOR_HOST_PORT}/2015-03-31/functions/function/invocations", json=lambda_payload, timeout=90)
+
+                # The processor handler has finished. Give the log streamer a moment
+                # to capture any final log messages before we proceed to cleanup.
+                time.sleep(2)
+                update_logs()
+
+                st.success("Processor invoked. Check logs for identification results.")
+
+                # The processor's response is just a status, the real result is in the logs (simulating an SMS)
+
         except Exception as e:
-            st.error(f"An error occurred: {e}")
+            st.error(f"An error occurred during the test flow: {e}")
             st.session_state.container_logs.append(f"App error: {e}\n")
             update_logs()
         finally:
-            st.info(f"Stopping container '{CONTAINER_NAME}'...")
-            subprocess.run(["podman", "stop", CONTAINER_NAME], capture_output=True)
-            st.success("Container stopped.")
+            # 6. Cleanup
+            st.info("Stopping containers...")
+            if responder_log_streamer:
+                responder_log_streamer.stop()
+            if processor_log_streamer:
+                processor_log_streamer.stop()
+
+            subprocess.run(["podman", "stop", RESPONDER_CONTAINER_NAME], capture_output=True)
+            subprocess.run(["podman", "stop", PROCESSOR_CONTAINER_NAME], capture_output=True)
+            st.success("Containers stopped.")
             
-            if log_streamer_thread:
-                log_streamer_stop_event.set()
-                log_streamer_thread.join(timeout=5)
-                if log_streamer_thread.is_alive():
-                    st.warning("Log streamer thread did not terminate gracefully.")
+            if responder_log_streamer:
+                responder_log_streamer.join(timeout=5)
+            if processor_log_streamer:
+                processor_log_streamer.join(timeout=5)
             
             image_server.stop()
-            # Final log update to catch any remaining logs
             time.sleep(1)
             update_logs()

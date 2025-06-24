@@ -13,6 +13,7 @@ import boto3
 from botocore.exceptions import ClientError
 import json 
 
+from twilio.rest import Client
 import logging
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -176,7 +177,9 @@ def process_image_for_identification(image_url):
 
         logger.info("Extracting features for query image...")
 
-        backbone = timm.create_model('hf-hub:BVRA/wildlife-mega-L-384', num_classes=0, pretrained=True)
+        logger.info("Attempting to create timm model backbone...")
+        backbone = timm.create_model('hf-hub:BVRA/wildlife-mega-L-384', pretrained=True, cache_dir='/tmp/model_cache')
+        logger.info("Timm model backbone created successfully.")
         extractor = DeepFeatures(backbone)
         query_features = extractor(dataset_query_single)
 
@@ -225,24 +228,14 @@ def process_image_for_identification(image_url):
             os.remove(temp_image_path)
             logger.info(f"Cleaned up temporary image: {temp_image_path}")
 
-def lambda_handler(event, context):
-    """
-    AWS Lambda handler function for processing Twilio MMS webhooks.
-    """
+def _parse_twilio_event(event):
+    """Helper function to parse the incoming event from API Gateway."""
     logger.info(f"Received raw event from Lambda: {json.dumps(event)}")
-
-    # Initialize a dictionary to hold the actual payload parameters
     incoming_payload = {}
-
-    # When Twilio sends a webhook via API Gateway (proxy integration),
-    # the form-urlencoded data is typically in the 'body' field as a string.
     if 'body' in event and event['body']:
         try:
-            # Check Content-Type header to determine how to parse the body
             content_type = event.get('headers', {}).get('Content-Type', '').lower()
             if 'application/x-www-form-urlencoded' in content_type:
-                # parse_qs returns a dictionary where values are lists.
-                # We take the first element of each list for the expected single values.
                 parsed_qs = urllib.parse.parse_qs(event['body'])
                 incoming_payload = {k: v[0] for k, v in parsed_qs.items()}
                 logger.info(f"Parsed event body (form-urlencoded): {json.dumps(incoming_payload)}")
@@ -251,90 +244,124 @@ def lambda_handler(event, context):
                 logger.info(f"Parsed event body (JSON): {json.dumps(incoming_payload)}")
             else:
                 logger.warning(f"Unexpected Content-Type: {content_type}. Attempting to use raw event body as payload.")
-                incoming_payload = event['body'] # Fallback to raw body if type is unknown
+                incoming_payload = event['body']
         except Exception as e:
             logger.error(f"Error parsing event body: {e}. Falling back to raw event as payload.")
-            incoming_payload = event # Fallback to raw event if parsing fails
+            incoming_payload = event
     else:
-        # If no 'body' field, assume the event itself is the payload (e.g., direct invocation)
         incoming_payload = event
         logger.info("No 'body' field found in event. Assuming direct payload invocation.")
+    return incoming_payload
 
-    # Now, extract parameters from the incoming_payload
-    image_url = incoming_payload.get('MediaUrl0')
-    from_number = incoming_payload.get('From')
-    to_number = incoming_payload.get('To')
-    message_body = incoming_payload.get('Body')
-
-    if not image_url: # This check remains valid for the extracted image_url
-        logger.error("No image URL found in Twilio MMS webhook payload.")
+def twilio_webhook_handler(event, context):
+    """
+    Receives the initial webhook from Twilio, invokes the processor asynchronously,
+    and returns an immediate response to Twilio.
+    This should be the handler for your 'twilio-webhook-responder' Lambda.
+    """
+    logger.info("--- twilio_webhook_handler invoked ---")
+    
+    processor_lambda_name = os.environ.get('PROCESSOR_LAMBDA_NAME')
+    if not processor_lambda_name:
+        logger.error("FATAL: PROCESSOR_LAMBDA_NAME environment variable not set.")
         return {
-            'statusCode': 400,
-            'headers': {
-                'Content-Type': 'text/xml' # Twilio expects TwiML for responses
-            },
-            'body': '<Response><Message>Error: No image found in your MMS message.</Message></Response>'
+            'statusCode': 500,
+            'headers': {'Content-Type': 'text/xml'},
+            'body': '<Response><Message>Error: System is not configured correctly.</Message></Response>'
         }
+
+    try:
+        lambda_client = boto3.client('lambda')
+        logger.info(f"Asynchronously invoking processor: {processor_lambda_name}")
+        lambda_client.invoke(
+            FunctionName=processor_lambda_name,
+            InvocationType='Event',
+            Payload=json.dumps(event)
+        )
+        logger.info("Processor invocation successful.")
+    except Exception as e:
+        logger.exception(f"Failed to invoke processor lambda: {e}")
+        return {
+            'statusCode': 500,
+            'headers': {'Content-Type': 'text/xml'},
+            'body': f'<Response><Message>Error: Could not start identification process.</Message></Response>'
+        }
+
+    response_message = (
+        "Identification started! (Please note: By sending a picture to the Little Tree Farms Horse ID number, "
+        "you consent to receive a response. Respond STOP to stop receiving messages.)"
+    )
+    twilio_response_body = f'<Response><Message>{response_message}</Message></Response>'
+
+    return {
+        'statusCode': 200,
+        'headers': {'Content-Type': 'text/xml'},
+        'body': twilio_response_body
+    }
+
+def horse_id_processor_handler(event, context):
+    """
+    Invoked asynchronously. Performs the actual image identification and sends
+    the results back to the user via the Twilio API.
+    This should be the handler for your 'horse-id-processor' Lambda.
+    """
+    logger.info("--- horse_id_processor_handler invoked ---")
+    incoming_payload = _parse_twilio_event(event)
+
+    image_url = incoming_payload.get('MediaUrl0')
+    if not image_url:
+        logger.error("No image URL found in the payload. Aborting.")
+        return {'statusCode': 400, 'body': 'No image URL found.'}
 
     try:
         prediction_results = process_image_for_identification(image_url)
         
-        # Construct a response message for Twilio
         response_message = "Horse Identification Results:\n"
         found_match = False
         for pred in prediction_results["predictions"]:
             if pred["above_threshold"]:
                 response_message += f"  Match: {pred['identity']} (Score: {pred['score']})\n"
                 found_match = True
-            else:
-                response_message += f"  Possible: {pred['identity']} (Score: {pred['score']})\n"
         
         if not found_match:
             response_message = "No strong match found. Top predictions:\n"
             for pred in prediction_results["predictions"]:
                 response_message += f"  {pred['identity']} (Score: {pred['score']})\n"
 
-        # Twilio expects TwiML (Twilio Markup Language) for responses
-        # This sends an SMS back to the sender
-        twilio_response_body = f'<Response><Message>{response_message}</Message></Response>'
+        logger.info("Sending final results via Twilio API...")
+        config = load_config()
+        twilio_config = config.get('twilio', {})
+        account_sid = os.environ.get('TWILIO_ACCOUNT_SID')
+        auth_token = os.environ.get('TWILIO_AUTH_TOKEN')
 
-        return {
-            'statusCode': 200,
-            'headers': {
-                'Content-Type': 'text/xml'
-            },
-            'body': twilio_response_body
-        }
+        if not account_sid or not auth_token:
+            raise ValueError("Twilio credentials (TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN) not found.")
 
+        client = Client(account_sid, auth_token)
+        twilio_sending_number = incoming_payload.get('To')
+        user_number = incoming_payload.get('From')
+
+        if not twilio_sending_number or not user_number:
+            raise ValueError("To/From numbers not found in payload.")
+
+        message = client.messages.create(body=response_message, from_=twilio_sending_number, to=user_number)
+        logger.info(f"Successfully sent SMS with SID: {message.sid}")
+        return {'statusCode': 200, 'body': json.dumps({'message_sid': message.sid})}
     except Exception as e:
-        logger.exception(f"An error occurred during horse identification: {e}")
-        error_message = f"An internal error occurred: {e}. Please try again later."
-        twilio_error_response_body = f'<Response><Message>Error: {error_message}</Message></Response>'
-        return {
-            'statusCode': 500,
-            'headers': {
-                'Content-Type': 'text/xml'
-            },
-            'body': twilio_error_response_body
-        }
+        logger.exception(f"An error occurred during horse identification processing: {e}")
+        return {'statusCode': 500, 'body': json.dumps({'error': str(e)})}
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Identify a horse from an image URL.")
+    parser = argparse.ArgumentParser(description="Identify a horse from an image URL (tests the core processing logic).")
     parser.add_argument("image_url", type=str, help="URL of the horse image to identify.")
     
     args = parser.parse_args()
     
-    # Simulate a Lambda event for local testing
-    mock_event = {
-        'MediaUrl0': args.image_url,
-        'From': '+1234567890',
-        'To': '+1987654321',
-        'Body': 'Test MMS'
-    }
-    mock_context = {} # Context object is usually empty for simple tests
-
-    response = lambda_handler(mock_event, mock_context)
-    print("\n--- Lambda Response (simulated) ---")
-    print(json.dumps(response, indent=2))
-
+    print("\n--- Running Core Identification Logic (simulated) ---")
+    try:
+        results = process_image_for_identification(args.image_url)
+        print(json.dumps(results, indent=2))
+    except Exception as e:
+        print(f"An error occurred: {e}")
+        
     sys.exit(0)

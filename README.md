@@ -138,28 +138,38 @@ The workflow is divided into several stages, each handled by a specific Python s
 
 ### 9. AWS Lambda Function: (`horse_id.py`)
 *   **Purpose**: This script serves as the AWS Lambda function responsible for real-time horse identification from an image URL. It is designed to receive Twilio webhook requests, fetch image, perform similarity comparisons, and return results.
-*   **Containerized**: `Dockerfile` is used to create the `horse-id-lambda-image` docker image containing `horse_id.py`. The python dependencies listed in `horse-id-requirements.txt` are installed in the image.
-*   **Inputs**: The function expects an event payload from a Twilio MMS webhook containing a `MediaUrl0` field, which provides the URL of the image to be processed.
-*   **Process**:
-    *   **Configuration Loading**: Loads system configuration parameters from `config.yml`.
-    *   **Data Retrieval**: Downloads necessary data artifacts, specifically `merged_manifest.csv` and `database_deep_features.pkl` (pre-computed image features), from the Amazon S3 bucket specified in the configuration.
-    *   **Image Download**: Fetches the image from the `MediaUrl0` provided in the input event.
-    *   **Feature Extraction**: Extracts deep features from the downloaded image using `wildlife-mega-L-384`.
-    *   **Similarity Comparison**: Compares the extracted features of the query image against the loaded database of horse features.
-    *   **Identification**: Identifies horse identities most similar to the downloaded image.
-    *   **Confidence Thresholding**: Applies a configurable `inference_threshold` to determine if a predicted match is strong enough to be considered a positive identification.
-*   **Outputs**: Returns a Twilio Markup Language (TwiML) response, which includes the identification results (predicted horse names and their confidence scores) or an appropriate error message, to be sent back to the originating service as an SMS reply.
+*   **Asynchronous Architecture**: The system uses two Lambda functions created from the same `horse-id-lambda-image` Docker image, but with different handlers and configurations. This design ensures a quick response to Twilio webhooks while allowing the computationally intensive image processing to run in the background.
+    1.  **`twilio-webhook-responder` (Handler: `horse_id.twilio_webhook_handler`)**:
+        *   **Purpose**: This is the public-facing Lambda function that directly receives the Twilio MMS webhook. Its primary goal is to respond immediately to Twilio to prevent timeouts.
+        *   **Process**:
+            *   Parses the incoming Twilio webhook event.
+            *   Asynchronously invokes the `horse-id-processor` Lambda function, passing the original event payload.
+            *   Returns a 200 OK TwiML response to Twilio with a confirmation message (e.g., "Identification started!").
+        *   **Configuration**: Requires the `PROCESSOR_LAMBDA_NAME` environment variable to be set to the full ARN or name of the `horse-id-processor` function.
+    2.  **`horse-id-processor` (Handler: `horse_id.horse_id_processor_handler`)**:
+        *   **Purpose**: This Lambda function performs the actual horse identification. It is invoked asynchronously by the `twilio-webhook-responder`.
+        *   **Process**:
+            *   Loads system configuration from `config.yml`.
+            *   Downloads necessary data artifacts (`merged_manifest.csv`, `database_deep_features.pkl`) from an Amazon S3 bucket.
+            *   Fetches the horse image from the `MediaUrl0` provided in the event.
+            *   Extracts deep features from the image using `wildlife-mega-L-384`.
+            *   Compares the extracted features against the database of horse features.
+            *   Identifies the top matching horse identities and applies a confidence threshold.
+            *   Uses the Twilio REST API to send the identification results (or an error message) directly back to the user as an SMS.
+        *   **Configuration**: Requires `TWILIO_ACCOUNT_SID` and `TWILIO_AUTH_TOKEN` environment variables for sending SMS via the Twilio API. It should also have a sufficiently long timeout (e.g., 1-2 minutes) to complete the processing.
 
 ### 10. Lambda Function Test Utility (`test_lambda_app.py`)
 *   **Purpose**: This interactive web application provides a user-friendly way to test the `horse-id-lambda-image` container locally. It replaces the static `run_container.sh` script.
 *   **Framework**: Built with Streamlit.
-*   **Workflow**:
-    1.  **Image Upload**: The user uploads a horse image through their browser.
-    2.  **Image Hosting**: The application starts a temporary, local web server to host the uploaded image at a URL accessible to the container (e.g., `http://host.containers.internal:8001/...`).
-    3.  **Container Management**: When the "Identify Horse" button is clicked, the app uses `podman` (or `docker`) to start the `horse-id-lambda-image` container in the background.
-    4.  **Invocation**: It constructs and sends a simulated Twilio webhook payload (as a JSON event) to the container's invocation endpoint (`http://localhost:8080/...`). The `MediaUrl0` in the payload points to the locally hosted image.
-    5.  **Display Results**: The response from the Lambda function (e.g., the TwiML XML) is captured and displayed in the web interface.
-    6.  **Cleanup**: The app automatically stops the container and shuts down the image server after the process is complete.
+*   **Workflow**: The test app simulates the full asynchronous flow.
+    1.  **Provide Image Path**: The user provides a local path to a horse image.
+    2.  **Image Hosting**: The application starts a temporary, local web server to host the image.
+    3.  **Container Management**: When the "Identify Horse" button is clicked, the app starts two containers: one for the `responder` and one for the `processor`.
+    4.  **Simulated Invocation**:
+        *   It first sends a request to the `responder` container and displays its immediate TwiML response.
+        *   It then sends the same request to the `processor` container to kick off the identification.
+    5.  **Log Streaming**: It streams logs from both containers into a unified view, prefixed with `[RESPONDER]` and `[PROCESSOR]`, allowing you to observe the entire flow.
+    6.  **Cleanup**: The app automatically stops both containers and the image server.
 
 ## User Interaction Flow
 
@@ -173,15 +183,17 @@ The workflow is divided into several stages, each handled by a specific Python s
 ```mermaid
 sequenceDiagram
     participant User
-    participant Gateway as SMS/MMS Gateway (Twilio)
-    participant Backend as AWS Lambda Function
+    participant Twilio
+    participant Responder as Webhook Responder Lambda
+    participant Processor as ID Processor Lambda
 
-    User->>Gateway: Sends horse image (MMS)
-    Gateway->>+Backend: API request (webhook)
-    Backend->>Gateway: Fetch Media
-    Gateway-->>Backend: Photo
-    Backend-->>-Gateway: Horse name & metadata
-    Gateway-->>User: Horse name & metadata (SMS)
+    User->>Twilio: Sends horse image (MMS)
+    Twilio->>+Responder: API request (webhook)
+    Responder->>Processor: Invoke Async (event payload)
+    Responder-->>-Twilio: 200 OK (TwiML confirmation)
+    Twilio-->>User: "Identification started..." (SMS)
+    Processor->>Twilio: Send SMS via API with results
+    Twilio-->>User: Identification results (SMS)
 ```
 
 ## CSV Files and Data Flow
@@ -357,3 +369,11 @@ graph TD
     ```bash
     docker push horse-id-lambda-image <ECR repository URI>
     ```
+3. **Create two Lambda Functions from the container image**
+    1. twilio-webhook-responder 
+        - Set the handler to `horse_id.twilio_webhook_handler
+        - Set environment variable `PROCESSOR_LAMBDA_NAME` to the full ARN or name of the `horse-id-processor` function
+    2. horse-id-processor
+        - Set the handler to `horse_id.horse_id_processor_handler`
+        - Set environment variables `TWILIO_ACCOUNT_SID` and `TWILIO_AUTH_TOKEN` with your Twilio credentials.
+        - Increase the timeout (e.g., to 1-2 minutes) to allow for model loading and processing.
