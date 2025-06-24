@@ -9,14 +9,14 @@ import tempfile
 import pickle
 import yaml
 import sys
-import boto3
+import boto3 
 from botocore.exceptions import ClientError
-import json # Added for JSON response
+import json 
 
-# For logging in Lambda
 import logging
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
+import urllib.parse 
 
 from wildlife_datasets import datasets
 from wildlife_tools.inference import TopkClassifier
@@ -29,7 +29,6 @@ from wildlife_tools.similarity import CosineSimilarity
 # --- Configuration ---
 CONFIG_FILE = 'config.yml'
 
-# --- Horses Class (Copied from notebook) ---
 class Horses(datasets.WildlifeDataset):
     def __init__(self, root_dir, manifest_file_path):
         self.manifest_file_path = manifest_file_path
@@ -230,17 +229,44 @@ def lambda_handler(event, context):
     """
     AWS Lambda handler function for processing Twilio MMS webhooks.
     """
-    logger.info(f"Received event: {json.dumps(event)}")
+    logger.info(f"Received raw event from Lambda: {json.dumps(event)}")
 
-    # Twilio MMS webhook payload typically sends data as application/x-www-form-urlencoded
-    # The 'event' dictionary will contain these form parameters.
-    # The image URL is usually in 'MediaUrl0'
-    image_url = event.get('MediaUrl0')
-    from_number = event.get('From')
-    to_number = event.get('To')
-    message_body = event.get('Body')
+    # Initialize a dictionary to hold the actual payload parameters
+    incoming_payload = {}
 
-    if not image_url:
+    # When Twilio sends a webhook via API Gateway (proxy integration),
+    # the form-urlencoded data is typically in the 'body' field as a string.
+    if 'body' in event and event['body']:
+        try:
+            # Check Content-Type header to determine how to parse the body
+            content_type = event.get('headers', {}).get('Content-Type', '').lower()
+            if 'application/x-www-form-urlencoded' in content_type:
+                # parse_qs returns a dictionary where values are lists.
+                # We take the first element of each list for the expected single values.
+                parsed_qs = urllib.parse.parse_qs(event['body'])
+                incoming_payload = {k: v[0] for k, v in parsed_qs.items()}
+                logger.info(f"Parsed event body (form-urlencoded): {json.dumps(incoming_payload)}")
+            elif 'application/json' in content_type:
+                incoming_payload = json.loads(event['body'])
+                logger.info(f"Parsed event body (JSON): {json.dumps(incoming_payload)}")
+            else:
+                logger.warning(f"Unexpected Content-Type: {content_type}. Attempting to use raw event body as payload.")
+                incoming_payload = event['body'] # Fallback to raw body if type is unknown
+        except Exception as e:
+            logger.error(f"Error parsing event body: {e}. Falling back to raw event as payload.")
+            incoming_payload = event # Fallback to raw event if parsing fails
+    else:
+        # If no 'body' field, assume the event itself is the payload (e.g., direct invocation)
+        incoming_payload = event
+        logger.info("No 'body' field found in event. Assuming direct payload invocation.")
+
+    # Now, extract parameters from the incoming_payload
+    image_url = incoming_payload.get('MediaUrl0')
+    from_number = incoming_payload.get('From')
+    to_number = incoming_payload.get('To')
+    message_body = incoming_payload.get('Body')
+
+    if not image_url: # This check remains valid for the extracted image_url
         logger.error("No image URL found in Twilio MMS webhook payload.")
         return {
             'statusCode': 400,
