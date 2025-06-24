@@ -16,7 +16,7 @@ COPY horse-id-requirements.txt .
 
 RUN pip install \
     --index-url https://download.pytorch.org/whl/cpu \
-    -r requirements.txt \
+    -r horse-id-requirements.txt \
     --no-cache-dir \ 
     --target "${LAMBDA_TASK_ROOT}"
 
