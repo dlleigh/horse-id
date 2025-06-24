@@ -14,12 +14,18 @@ RUN dnf install -y mesa-libGL libXext libSM libICE libXrender fontconfig git
 
 # Copy your requirements file and install dependencies
 COPY horse-id-requirements.txt .
+
+RUN pip install \
+    --index-url https://download.pytorch.org/whl/cpu \
+    torch torchvision \
+    --no-cache-dir
+
 # Install dependencies into the function's directory, /var/task.
 # The AWS Lambda runtime automatically adds this directory to the PYTHONPATH.
 # The original --target "${LAMBDA_RUNTIME_DIR}" installed packages to /var/runtime,
 # which is not in the PYTHONPATH, making them unavailable to the Python interpreter.
-# RUN pip install -r horse-id-requirements.txt --target "${LAMBDA_TASK_ROOT}"
-RUN pip install pandas numpy requests Pillow PyYAML boto3 twilio timm wildlife-datasets torch --target "${LAMBDA_TASK_ROOT}"
+RUN pip install -r horse-id-requirements.txt --target "${LAMBDA_TASK_ROOT}"
+# RUN pip install pandas numpy requests Pillow PyYAML boto3 twilio timm wildlife-datasets torch --target "${LAMBDA_TASK_ROOT}"
 
 # RUN python -c "import timm; timm.create_model('hf-hub:BVRA/wildlife-mega-L-384', num_classes=0, pretrained=True)"
 
