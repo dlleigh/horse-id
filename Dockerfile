@@ -17,7 +17,7 @@ COPY horse-id-requirements.txt .
 
 RUN pip install \
     --index-url https://download.pytorch.org/whl/cpu \
-    torch torchvision \
+    torch  \
     --no-cache-dir
 
 # Install dependencies into the function's directory, /var/task.
