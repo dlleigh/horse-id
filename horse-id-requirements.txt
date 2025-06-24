@@ -4,7 +4,6 @@ requests
 Pillow
 PyYAML
 wildlife-datasets
-wildlife-tools @ git+https://github.com/WildlifeDatasets/wildlife-tools
 timm
 boto3
 twilio
