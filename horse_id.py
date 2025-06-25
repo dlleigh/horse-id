@@ -107,7 +107,7 @@ def download_from_s3(s3_client, bucket_name, s3_key, local_path):
             logger.error(f"    ERROR: Failed to download file from S3. Reason: {e}")
         return False
 
-def process_image_for_identification(image_url):
+def process_image_for_identification(image_url, twilio_account_sid=None, twilio_auth_token=None):
     """
     Core logic to download image, extract features, and identify horse.
     Returns a dictionary of prediction results.
@@ -147,7 +147,9 @@ def process_image_for_identification(image_url):
 
     logger.info(f"Downloading image from {image_url}...")
     try:
-        response = requests.get(image_url, timeout=10)
+        # Twilio Media URLs require authentication.
+        auth_tuple = (twilio_account_sid, twilio_auth_token) if twilio_account_sid and twilio_auth_token else None
+        response = requests.get(image_url, auth=auth_tuple, timeout=10)
         response.raise_for_status()
         img_bytes = io.BytesIO(response.content)
         # Validate if the downloaded content can be opened as an image by PIL
@@ -287,7 +289,16 @@ def horse_id_processor_handler(event, context):
         return {'statusCode': 400, 'body': 'No image URL found.'}
 
     try:
-        prediction_results = process_image_for_identification(image_url)
+        # Get Twilio credentials from environment variables to pass to the image downloader
+        config = load_config()
+        twilio_config = config.get('twilio', {})
+        account_sid = os.environ.get('TWILIO_ACCOUNT_SID', twilio_config.get('account_sid'))
+        auth_token = os.environ.get('TWILIO_AUTH_TOKEN', twilio_config.get('auth_token'))
+
+        if not account_sid or not auth_token:
+            raise ValueError("Twilio credentials (TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN) not found for processor.")
+
+        prediction_results = process_image_for_identification(image_url, twilio_account_sid=account_sid, twilio_auth_token=auth_token)
         
         response_message = "Horse Identification Results:\n"
         found_match = False
@@ -302,13 +313,6 @@ def horse_id_processor_handler(event, context):
                 response_message += f"  {pred['identity']} (Score: {pred['score']})\n"
 
         logger.info("Sending final results via Twilio API...")
-        config = load_config()
-        twilio_config = config.get('twilio', {})
-        account_sid = os.environ.get('TWILIO_ACCOUNT_SID')
-        auth_token = os.environ.get('TWILIO_AUTH_TOKEN')
-
-        if not account_sid or not auth_token:
-            raise ValueError("Twilio credentials (TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN) not found.")
 
         client = Client(account_sid, auth_token)
         twilio_sending_number = incoming_payload.get('To')
@@ -332,7 +336,7 @@ if __name__ == "__main__":
     
     print("\n--- Running Core Identification Logic (simulated) ---")
     try:
-        results = process_image_for_identification(args.image_url)
+        results = process_image_for_identification(args.image_url, None, None)
         print(json.dumps(results, indent=2))
     except Exception as e:
         print(f"An error occurred: {e}")
