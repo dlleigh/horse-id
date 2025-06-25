@@ -208,20 +208,14 @@ def process_image_for_identification(image_url, twilio_account_sid=None, twilio_
             "query_image_url": image_url,
             "predictions": []
         }
-        logger.info("\n--- Predictions above Confidence Threshold ---")        
-        found_above_threshold = False
+        logger.info("\n--- Predictions ---")        
         for pred, score in zip(predictions[0], scores[0]):
-            if score > CONFIDENCE_THRESHOLD:
-                logger.info(f"  Predicted identity: {pred}, Score: {score:.4f}")
-                results["predictions"].append({"identity": pred, "score": round(score, 4), "above_threshold": True})
-                found_above_threshold = True
-            else:
-                results["predictions"].append({"identity": pred, "score": round(score, 4), "above_threshold": False})
-        if not found_above_threshold:
-            logger.info(f"  No predictions found above the confidence threshold of {CONFIDENCE_THRESHOLD}.")
-            logger.info("  Displaying top 5 predictions regardless of threshold:")
-            for pred_data in results["predictions"]:
-                logger.info(f"  identity: {pred_data['identity']}, Score: {pred_data['score']:.4f}")
+            results['predictions'].append({
+                "identity": pred,
+                "score": score
+            })
+        for pred_data in results["predictions"]:
+            logger.info(f"  identity: {pred_data['identity']}, Score: {pred_data['score']:.4f}")
         logger.info("--------------------------------------------")
         
         return results
@@ -300,17 +294,15 @@ def horse_id_processor_handler(event, context):
 
         prediction_results = process_image_for_identification(image_url, twilio_account_sid=account_sid, twilio_auth_token=auth_token)
         
-        response_message = "Horse Identification Results:\n"
-        found_match = False
+        response_message = "\nHorse Identification Results:\n"
         for pred in prediction_results["predictions"]:
-            if pred["above_threshold"]:
-                response_message += f"  Match: {pred['identity']} (Score: {pred['score']})\n"
-                found_match = True
-        
-        if not found_match:
-            response_message = "No strong match found. Top predictions:\n"
-            for pred in prediction_results["predictions"]:
-                response_message += f"  {pred['identity']} (Score: {pred['score']})\n"
+            response_message += f"  {pred['identity']} (Confidence: {pred['score']:.1%})\n"
+        # found_match = False
+        # for pred in prediction_results["predictions"]:
+        #     if pred['score'] >= config['similarity']['inference_threshold']:
+        #         found_match = True
+        # if not found_match:
+        #     response_message += "No strong match found."
 
         logger.info("Sending final results via Twilio API...")
 
