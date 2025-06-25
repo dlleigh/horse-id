@@ -11,6 +11,7 @@ import yaml
 import sys
 import boto3 
 from botocore.exceptions import ClientError
+import base64
 import json 
 
 from twilio.rest import Client
@@ -231,73 +232,45 @@ def process_image_for_identification(image_url):
 def _parse_twilio_event(event):
     """Helper function to parse the incoming event from API Gateway."""
     logger.info(f"Received raw event from Lambda: {json.dumps(event)}")
-    incoming_payload = {}
+
+    # If the event does not look like an API Gateway event (e.g. from a test),
+    # assume it's the direct payload.
+    if 'body' not in event or 'headers' not in event:
+        logger.info("Event does not appear to be from API Gateway. Assuming direct payload.")
+        return event
+
     if 'body' in event and event['body']:
+        body_str = event['body']
+        if event.get('isBase64Encoded', False):
+            logger.info("Body is base64 encoded, decoding...")
+            try:
+                body_str = base64.b64decode(body_str).decode('utf-8')
+            except Exception as e:
+                logger.error(f"Failed to decode base64 body: {e}")
+                return {}
+
+        # Normalize header keys to lowercase for consistent access.
+        # API Gateway v2 payload format lowercases all header keys.
+        headers = {k.lower(): v for k, v in event.get('headers', {}).items()}
+        content_type = headers.get('content-type', '')
+
         try:
-            content_type = event.get('headers', {}).get('Content-Type', '').lower()
             if 'application/x-www-form-urlencoded' in content_type:
-                parsed_qs = urllib.parse.parse_qs(event['body'])
+                parsed_qs = urllib.parse.parse_qs(body_str)
                 incoming_payload = {k: v[0] for k, v in parsed_qs.items()}
                 logger.info(f"Parsed event body (form-urlencoded): {json.dumps(incoming_payload)}")
+                return incoming_payload
             elif 'application/json' in content_type:
-                incoming_payload = json.loads(event['body'])
+                incoming_payload = json.loads(body_str)
                 logger.info(f"Parsed event body (JSON): {json.dumps(incoming_payload)}")
-            else:
-                logger.warning(f"Unexpected Content-Type: {content_type}. Attempting to use raw event body as payload.")
-                incoming_payload = event['body']
+                return incoming_payload
         except Exception as e:
             logger.error(f"Error parsing event body: {e}. Falling back to raw event as payload.")
-            incoming_payload = event
-    else:
-        incoming_payload = event
-        logger.info("No 'body' field found in event. Assuming direct payload invocation.")
-    return incoming_payload
+            return {}
 
-def twilio_webhook_handler(event, context):
-    """
-    Receives the initial webhook from Twilio, invokes the processor asynchronously,
-    and returns an immediate response to Twilio.
-    This should be the handler for your 'twilio-webhook-responder' Lambda.
-    """
-    logger.info("--- twilio_webhook_handler invoked ---")
-    
-    processor_lambda_name = os.environ.get('PROCESSOR_LAMBDA_NAME')
-    if not processor_lambda_name:
-        logger.error("FATAL: PROCESSOR_LAMBDA_NAME environment variable not set.")
-        return {
-            'statusCode': 500,
-            'headers': {'Content-Type': 'text/xml'},
-            'body': '<Response><Message>Error: System is not configured correctly.</Message></Response>'
-        }
+    logger.warning(f"Could not parse body with Content-Type: '{headers.get('content-type', '')}'. Returning empty payload.")
+    return {}
 
-    try:
-        lambda_client = boto3.client('lambda')
-        logger.info(f"Asynchronously invoking processor: {processor_lambda_name}")
-        lambda_client.invoke(
-            FunctionName=processor_lambda_name,
-            InvocationType='Event',
-            Payload=json.dumps(event)
-        )
-        logger.info("Processor invocation successful.")
-    except Exception as e:
-        logger.exception(f"Failed to invoke processor lambda: {e}")
-        return {
-            'statusCode': 500,
-            'headers': {'Content-Type': 'text/xml'},
-            'body': f'<Response><Message>Error: Could not start identification process.</Message></Response>'
-        }
-
-    response_message = (
-        "Identification started! (Please note: By sending a picture to the Little Tree Farms Horse ID number, "
-        "you consent to receive a response. Respond STOP to stop receiving messages.)"
-    )
-    twilio_response_body = f'<Response><Message>{response_message}</Message></Response>'
-
-    return {
-        'statusCode': 200,
-        'headers': {'Content-Type': 'text/xml'},
-        'body': twilio_response_body
-    }
 
 def horse_id_processor_handler(event, context):
     """

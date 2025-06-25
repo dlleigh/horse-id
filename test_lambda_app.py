@@ -14,7 +14,8 @@ import queue
 import requests
 
 # --- Configuration ---
-IMAGE_NAME = "horse-id-lambda-image"
+PROCESSOR_IMAGE_NAME = "horse-id-processor-image" # Renamed for clarity
+RESPONDER_IMAGE_NAME = "horse-id-responder-image"
 RESPONDER_CONTAINER_NAME = "horse-id-responder-container"
 PROCESSOR_CONTAINER_NAME = "horse-id-processor-container"
 RESPONDER_HOST_PORT = 8080
@@ -163,6 +164,27 @@ def update_logs():
         st.session_state.container_logs.append(st.session_state.log_queue.get())
     log_placeholder.code("".join(st.session_state.container_logs), language='bash')
 
+def build_image(image_name, dockerfile_path, context_path="."):
+    """Helper function to build a Docker image."""
+    st.info(f"Building image '{image_name}' from '{dockerfile_path}'...")
+    try:
+        build_cmd = ["podman", "build", "-t", image_name, "-f", dockerfile_path, context_path]
+        process = subprocess.Popen(build_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        with st.expander(f"Build logs for {image_name}", expanded=False):
+            log_output = ""
+            for line in iter(process.stdout.readline, ''):
+                log_output += line
+            st.code(log_output, language='bash')
+        process.wait()
+        if process.returncode != 0:
+            st.error(f"Failed to build image '{image_name}'. Check logs above.")
+            return False
+        st.success(f"Successfully built image '{image_name}'.")
+        return True
+    except Exception as e:
+        st.error(f"An error occurred while building '{image_name}': {e}")
+        return False
+
 if st.button("Identify Horse"):
     if not resolved_image_path: # Use the resolved path for validation
         st.error("Please provide a valid path to an image file first.")
@@ -170,6 +192,13 @@ if st.button("Identify Horse"):
         # Reset logs for new run
         st.session_state.container_logs = []
         update_logs()
+
+        # Build both images first
+        # The main Dockerfile is for the processor.
+        if not build_image(RESPONDER_IMAGE_NAME, "Dockerfile.responder"):
+            st.stop()
+        if not build_image(PROCESSOR_IMAGE_NAME, "Dockerfile.horse_id"):
+            st.stop()
 
         # 1. Get image details and start the image server
         image_dir = os.path.dirname(resolved_image_path) # Use resolved path
@@ -207,8 +236,8 @@ if st.button("Identify Horse"):
                 "-e", f"TWILIO_ACCOUNT_SID={twilio_sid}",
                 "-e", f"TWILIO_AUTH_TOKEN={twilio_token}",
                 "--name", PROCESSOR_CONTAINER_NAME,
-                IMAGE_NAME,
-                "horse_id.horse_id_processor_handler"
+                PROCESSOR_IMAGE_NAME, # Use the processor image
+                "horse_id.horse_id_processor_handler" # Explicitly set handler
             ]
             subprocess.check_call(processor_start_cmd)
             st.success(f"Container '{PROCESSOR_CONTAINER_NAME}' started on port {PROCESSOR_HOST_PORT}.")
@@ -219,8 +248,8 @@ if st.button("Identify Horse"):
                 "-p", f"{RESPONDER_HOST_PORT}:8080",
                 "-e", "PROCESSOR_LAMBDA_NAME=horse-id-processor-local-test", # Dummy name for local test
                 "--name", RESPONDER_CONTAINER_NAME,
-                IMAGE_NAME,
-                "horse_id.twilio_webhook_handler"
+                RESPONDER_IMAGE_NAME, # Use the responder image
+                "webhook_responder.webhook_handler" # Explicitly set handler
             ]
             subprocess.check_call(responder_start_cmd)
             st.success(f"Container '{RESPONDER_CONTAINER_NAME}' started on port {RESPONDER_HOST_PORT}.")

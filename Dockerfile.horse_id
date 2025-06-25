@@ -28,5 +28,4 @@ RUN python -c "import timm; timm.create_model('hf-hub:BVRA/wildlife-mega-L-384',
 COPY horse_id.py ${LAMBDA_TASK_ROOT}/
 COPY config.yml ${LAMBDA_TASK_ROOT}/
 
-# Set the CMD to your handler (app.lambda_handler)
 CMD [ "horse_id.horse_id_processor_handler" ]
