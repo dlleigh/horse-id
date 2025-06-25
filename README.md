@@ -200,8 +200,10 @@ sequenceDiagram
     Responder->>Processor: Invoke Async (event payload)
     Responder-->>-Twilio: 200 OK (TwiML confirmation)
     Twilio-->>User: "Identification started..." (SMS)
+    Processor->>+Twilio: Fetch image from SMS Gateway
+    Twilio-->>-Processor: Image
     Processor->>Twilio: Send SMS via API with results
-    Twilio-->>User: Identification results (SMS)
+    Twilio->>User: Identification results (SMS)
 ```
 
 ## CSV Files and Data Flow
