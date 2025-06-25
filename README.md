@@ -370,6 +370,7 @@ graph TD
 2. **Create two Lambda Functions from the image**
     1. webhook-responder 
         - Set environment variable `PROCESSOR_LAMBDA_NAME` to the full ARN or name of the `horse-id-processor` function
+        - Set environment variables `TWILIO_AUTH_TOKEN` with your Twilio credentials. This is used for Twilio request validation.
     2. horse-id-processor
         - Set environment variables `TWILIO_ACCOUNT_SID` and `TWILIO_AUTH_TOKEN` with your Twilio credentials.
         - Increase the timeout (e.g., to 1-2 minutes) to allow for model loading and processing.

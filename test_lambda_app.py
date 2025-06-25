@@ -12,6 +12,7 @@ import functools
 import mimetypes
 import queue
 import requests
+from twilio.request_validator import RequestValidator
 
 # --- Configuration ---
 PROCESSOR_IMAGE_NAME = "horse-id-processor-image" # Renamed for clarity
@@ -147,6 +148,12 @@ twilio_to_number = st.text_input(
     value="+15555555556" # Default value
 )
 
+# Get Twilio Auth Token from environment variable
+# This is used for local testing to generate the X-Twilio-Signature
+TWILIO_AUTH_TOKEN = os.environ.get("TWILIO_AUTH_TOKEN")
+if not TWILIO_AUTH_TOKEN:
+    st.warning("TWILIO_AUTH_TOKEN environment variable not set. Twilio request validation might fail.")
+
 
 # Initialize session state for logs and streamer management
 if 'container_logs' not in st.session_state:
@@ -188,6 +195,8 @@ def build_image(image_name, dockerfile_path, context_path="."):
 if st.button("Identify Horse"):
     if not resolved_image_path: # Use the resolved path for validation
         st.error("Please provide a valid path to an image file first.")
+    elif not TWILIO_AUTH_TOKEN:
+        st.error("TWILIO_AUTH_TOKEN environment variable is not set. Cannot generate a valid Twilio signature for testing.")
     else:
         # Reset logs for new run
         st.session_state.container_logs = []
@@ -220,8 +229,9 @@ if st.button("Identify Horse"):
             # 2. Start both Lambda containers
             st.info("Starting Responder and Processor containers...")
             aws_profile = os.environ.get("AWS_PROFILE", "")
-            twilio_sid = os.environ.get("TWILIO_ACCOUNT_SID", "ACxxxxxxxx_DUMMY_SID_xxxxxxxx")
-            twilio_token = os.environ.get("TWILIO_AUTH_TOKEN", "xxxxxxxx_DUMMY_TOKEN_xxxxxxxx")
+            twilio_sid = os.environ.get("TWILIO_ACCOUNT_SID", "AC_streamlit_test_sid")
+            # Use the token from the input field
+            twilio_token = TWILIO_AUTH_TOKEN 
             if not aws_profile:
                 st.warning("AWS_PROFILE environment variable not set. AWS commands might fail if not configured otherwise.")
 
@@ -246,10 +256,11 @@ if st.button("Identify Horse"):
             responder_start_cmd = [
                 "podman", "run", "-d", "--rm",
                 "-p", f"{RESPONDER_HOST_PORT}:8080",
-                "-e", "PROCESSOR_LAMBDA_NAME=horse-id-processor-local-test", # Dummy name for local test
+                "-e", f"TWILIO_AUTH_TOKEN={twilio_token}", # Pass auth token for validation
+                "-e", "PROCESSOR_LAMBDA_NAME=horse-id-processor-local-test",
                 "--name", RESPONDER_CONTAINER_NAME,
                 RESPONDER_IMAGE_NAME, # Use the responder image
-                "webhook_responder.webhook_handler" # Explicitly set handler
+                "webhook_responder.webhook_handler"
             ]
             subprocess.check_call(responder_start_cmd)
             st.success(f"Container '{RESPONDER_CONTAINER_NAME}' started on port {RESPONDER_HOST_PORT}.")
@@ -272,14 +283,30 @@ if st.button("Identify Horse"):
             content_type, _ = mimetypes.guess_type(resolved_image_path)
             content_type = content_type or 'application/octet-stream'
 
-            mock_twilio_data = urllib.parse.urlencode({
+            mock_twilio_params = {
                 "SmsMessageSid": "SM_streamlit_test_sid", "AccountSid": "AC_streamlit_test_sid",
                 "From": twilio_from_number, "To": twilio_to_number, "Body": "Image from Streamlit test app.",
                 "NumMedia": "1", "MediaUrl0": image_url, "MediaContentType0": content_type
-            })
+            }
+            mock_twilio_data = urllib.parse.urlencode(mock_twilio_params)
+
+            # --- Generate a valid Twilio signature ---
+            validator = RequestValidator(twilio_token)
+            # The URL must match what the responder will reconstruct from the event.
+            mock_host = "streamlit-test.com"
+            mock_path = "/webhook"
+            mock_url = f"https://{mock_host}{mock_path}"
+            signature = validator.compute_signature(mock_url, mock_twilio_params)
+            st.info(f"Generated Twilio Signature: {signature}")
+
             lambda_payload = {
-                "body": mock_twilio_data, "headers": {"Content-Type": "application/x-www-form-urlencoded"},
-                "httpMethod": "POST", "isBase64Encoded": False, "path": "/webhook"
+                "body": mock_twilio_data,
+                "headers": {
+                    "Content-Type": "application/x-www-form-urlencoded",
+                    "host": mock_host,
+                    "x-twilio-signature": signature
+                },
+                "httpMethod": "POST", "isBase64Encoded": False, "rawPath": mock_path, "rawQueryString": ""
             }
 
             # 4. Invoke Responder
