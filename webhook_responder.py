@@ -52,7 +52,7 @@ def webhook_handler(event, context):
             except Exception as e:
                 logger.error(f"Failed to decode base64 body for validation: {e}")
                 return {'statusCode': 400, 'body': 'Bad Request: Invalid body encoding.'}
-        post_vars = urllib.parse.parse_qs(body_str)
+        post_vars = urllib.parse.parse_qs(body_str, keep_blank_values=True)
         # urllib.parse.parse_qs returns lists for values, convert to single values
         post_vars = {k: v[0] for k, v in post_vars.items()}
 
