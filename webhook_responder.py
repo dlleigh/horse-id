@@ -15,6 +15,7 @@ def webhook_handler(event, context):
     and returns an immediate response to Twilio.
     This should be the handler for your 'webhook-responder' Lambda.
     """
+    print(json.dumps(event))
     logger.info("--- webhook_handler invoked ---")
 
     # --- Twilio Request Validation ---
