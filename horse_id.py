@@ -30,6 +30,7 @@ from wildlife_tools.similarity import CosineSimilarity
 
 # --- Configuration ---
 CONFIG_FILE = 'config.yml'
+os.environ['MPLCONFIGDIR'] = '/tmp/matplotlib_cache'
 
 class Horses(datasets.WildlifeDataset):
     def __init__(self, root_dir, manifest_file_path):
@@ -183,8 +184,8 @@ def process_image_for_identification(image_url, twilio_account_sid=None, twilio_
         logger.info("Attempting to create timm model backbone...")
         backbone = timm.create_model('hf-hub:BVRA/wildlife-mega-L-384', pretrained=True, cache_dir='/tmp/model_cache')
         logger.info("Timm model backbone created successfully.")
-        extractor = DeepFeatures(backbone)
-        query_features = extractor(dataset_query_single, num_workers=0)
+        extractor = DeepFeatures(backbone, num_workers=0)
+        query_features = extractor(dataset_query_single)
 
         features_output_path = os.path.join(features_dir, 'database_deep_features.pkl')
         logger.info(f"Loading database features from {features_output_path}...")
