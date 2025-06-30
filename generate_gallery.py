@@ -215,6 +215,20 @@ def create_html_gallery(df, output_path, manifest_display_name, current_manifest
         is_merged_flag = str(row['horse_name'] in merged_horse_names).lower()
         has_multiple_canonical_ids_flag = str(row['horse_name'] in unmerged_multi_id_horse_names).lower()
 
+        # --- Date Formatting ---
+        try:
+            # email_date is stored as YYYYMMDD, format it to YYYY-MM-DD
+            email_date_formatted = pd.to_datetime(str(row.get('email_date')), format='%Y%m%d').strftime('%Y-%m-%d')
+        except (ValueError, TypeError):
+            email_date_formatted = 'N/A'
+
+        # Additional metadata for display
+        message_id_val = row.get('message_id', 'N/A')
+        original_filename_safe = html.escape(str(row.get('original_filename', 'N/A')))
+        date_added_val = row.get('date_added', 'N/A')
+        last_merged_formatted = pd.to_datetime(row.get('last_merged_timestamp')).strftime('%Y-%m-%d') if pd.notna(row.get('last_merged_timestamp')) else 'N/A'
+        status_val = html.escape(str(row.get('status', ''))) # Default to empty string if missing
+
         # Update the gallery-item div content in the main loop
         html_content += f"""
         <div class="gallery-item" 
@@ -222,11 +236,16 @@ def create_html_gallery(df, output_path, manifest_display_name, current_manifest
             data-detection="{detection_status}"
             data-canonical-id="{row['canonical_id']}"
             data-filename="{filename_safe}"
-            data-email-date="{row.get('email_date', 'N/A')}"
+            data-email-date="{email_date_formatted}"
             data-size-ratio="{size_ratio_val}"
             data-original-canonical-id="{original_canonical_id_val}"
             data-is-merged="{is_merged_flag}"
             data-has-multiple-canonical-ids="{has_multiple_canonical_ids_flag}"
+            data-message-id="{message_id_val}"
+            data-original-filename="{original_filename_safe}"
+            data-date-added="{date_added_val}"
+            data-last-merged="{last_merged_formatted}"
+            data-status="{status_val}"
             onclick="openModal(this)">
             <img src="{relative_image_path}" alt="{filename_safe}" loading="lazy">
             <div class="caption">
@@ -234,7 +253,7 @@ def create_html_gallery(df, output_path, manifest_display_name, current_manifest
                 <p><span class="label">ID:</span> {row['canonical_id']}</p>
                 <p><span class="label">Orig. ID:</span> {original_canonical_id_val if pd.notna(original_canonical_id_val) else 'N/A'}</p>
                 <p><span class="label">Detection:</span> {detection_status}</p>
-                <p><span class="label">File:</span> {filename_safe}</p>
+                <p><span class="label">Email Date:</span> {email_date_formatted}</p>
                 <p><span class="label">Size Ratio:</span> {size_ratio_val if pd.notna(size_ratio_val) else 'N/A'}</p>
             </div>
         </div>
@@ -260,11 +279,19 @@ def create_html_gallery(df, output_path, manifest_display_name, current_manifest
             const metadata = `
                 <p><strong>Horse Name:</strong> ${element.getAttribute('data-horse-name')}</p>
                 <p><strong>Canonical ID:</strong> ${element.getAttribute('data-canonical-id')}</p>
-                <p><strong>Original Canonical ID:</strong> ${element.getAttribute('data-original-canonical-id') !== 'nan' ? element.getAttribute('data-original-canonical-id') : 'N/A'}</p>
-                <p><strong>Detection Status:</strong> ${element.getAttribute('data-detection')}</p>
-                <p><strong>Email Date:</strong> ${element.getAttribute('data-email-date')}</p>
+                <p><strong>Original Canonical ID:</strong> ${element.getAttribute('data-original-canonical-id') !== 'nan' ? element.getAttribute('data-original-canonical-id') : 'N/A'}</p>                
+                <hr>
                 <p><strong>Filename:</strong> ${element.getAttribute('data-filename')}</p>
+                <p><strong>Original Filename:</strong> ${element.getAttribute('data-original-filename')}</p>
+                <p><strong>Message ID:</strong> ${element.getAttribute('data-message-id')}</p>
+                <hr>
+                <p><strong>Email Date:</strong> ${element.getAttribute('data-email-date')}</p>
+                <p><strong>Date Added:</strong> ${element.getAttribute('data-date-added')}</p>
+                <p><strong>Last Merged:</strong> ${element.getAttribute('data-last-merged')}</p>
+                <hr>
+                <p><strong>Detection Status:</strong> ${element.getAttribute('data-detection')}</p>
                 <p><strong>Size Ratio:</strong> ${element.getAttribute('data-size-ratio') !== 'nan' ? parseFloat(element.getAttribute('data-size-ratio')).toFixed(2) : 'N/A'}</p>
+                <p><strong>Status:</strong> ${element.getAttribute('data-status')}</p>
             `;
             metadataDiv.innerHTML = metadata;
             
