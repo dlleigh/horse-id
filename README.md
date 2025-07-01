@@ -8,7 +8,7 @@ SMS/MMS (via Twilio SMS Gateway) is the interface used for individual horse iden
 
 The workflow is divided into several stages, each handled by a specific Python script:
 
-1.  **Email Ingestion (`horse_email_parser.py`)**: Fetches emails from a Gmail account, extracts horse names from subjects, saves image attachments, and creates an initial manifest of photos.
+1.  **Email Ingestion (`ingest_from_email.py`)**: Fetches emails from a Gmail account, extracts horse names from subjects, saves image attachments, and creates an initial manifest of photos.
 2.  **Multi-Horse Detection (`multi_horse_detector.py`)**: Analyzes each downloaded image to detect the number of horses present (NONE, SINGLE, MULTIPLE) using a YOLOv5 model. It updates the manifest with this detection information.
 3.  **Identity Merging (`merge_horse_identities.py`)**: Compares images of horses (identified as 'SINGLE' detection) with the same extracted horse name but from different emails. It uses the WildFusion similarity system to determine if they are the same horse and merges their identities by assigning a common `canonical_id`.
 4.  **Merge Review (`review_merges_app.py`)**: A web application that allows a user to review the automated merge decisions from `merge_horse_identities.py`, manually merge or un-merge identities, and correct any errors.
@@ -28,11 +28,11 @@ The workflow is divided into several stages, each handled by a specific Python s
     *   The `WildFusion` pipeline for calibrating and combining multiple similarity scores.
 *   **YOLOv5**: Used by `multi_horse_detector.py` for multi-object detection, specifically to identify images that contain multiple horses.
 *   **Streamlit**: (https://streamlit.io/) Framework used by `review_merges_app.py` to create an interactive web application for merge review.
-*   **Google Gmail API**: Used by `horse_email_parser.py` to fetch and process emails.
+*   **Google Gmail API**: Used by `ingest_from_email.py` to fetch and process emails.
 
 ## Core Scripts and Functionality
 
-### 1. Email Ingestion (`horse_email_parser.py`)
+### 1. Email Ingestion (`ingest_from_email.py`)
 
 *   **Authentication**: Securely connects to a specified Gmail account using OAuth 2.0. Credentials and tokens are managed via `credentials.json` and `token.json` (generated on first run).
 *   **Email Fetching**: Retrieves new emails that haven't been processed yet by comparing message IDs against the existing manifest.
@@ -47,9 +47,9 @@ The workflow is divided into several stages, each handled by a specific Python s
 
 ### 2. Multi-Horse Detection (`multi_horse_detector.py`)
 
-*   **Purpose**: Many photos collected by `horse_email_parser.py` contain images of multiple horses. The goal of `multi-horse_detector.py` is to select the photos which are unambiguously images of the labeled horse. These images are labeled SINGLE.  Images which are labeled MULTIPLE and NONE are ignored in subsequent processing.
+*   **Purpose**: Many photos collected by `ingest_from_email.py` contain images of multiple horses. The goal of `multi-horse_detector.py` is to select the photos which are unambiguously images of the labeled horse. These images are labeled SINGLE.  Images which are labeled MULTIPLE and NONE are ignored in subsequent processing.
 *   **Model Loading**: Loads a pre-trained YOLOv5 model specified in `config.yml`.
-*   **Image Analysis**: For each image in the manifest (from the output of `horse_email_parser.py`):
+*   **Image Analysis**: For each image in the manifest (from the output of `ingest_from_email.py`):
     *   Detects objects and identifies horses (COCO class 17).
     *   **Classification**:
         *   `NONE`: No horses detected.
@@ -211,7 +211,7 @@ sequenceDiagram
 The system uses several CSV files to store and pass data between stages:
 
 1.  **`manifest_file` (e.g., `data/manifest.csv`)**
-    *   **Created by**: `horse_email_parser.py`
+    *   **Created by**: `ingest_from_email.py`
     *   **Purpose**: Initial list of all downloaded photos and their metadata from emails.
     *   **Key Columns**:
         *   `horse_name`: Extracted from email subject.
@@ -261,7 +261,7 @@ The system uses several CSV files to store and pass data between stages:
 ```mermaid
 graph TD
     subgraph "Email Processing"
-        email_parser["horse_email_parser.py"] --> manifest_base("manifest_file")
+        email_parser["ingest_from_email.py"] --> manifest_base("manifest_file")
     end
 
     subgraph "Multi-Horse Detection"
@@ -304,7 +304,7 @@ graph TD
 3.  **Configure Gmail API**:
     *   Follow Google's instructions to enable the Gmail API and download `credentials.json`.
     *   Place `credentials.json` in the root directory or update its path in `config.yml`.
-    *   The first time `horse_email_parser.py` runs, it will open a browser window for authentication, creating `token.json`.
+    *   The first time `ingest_from_email.py` runs, it will open a browser window for authentication, creating `token.json`.
 4.  **Configure `config.yml`**:
     *   Update `paths` for `data_root`, `dataset_dir`, manifest files, etc., to your desired locations.
     *   Review `gmail` settings.
@@ -319,7 +319,7 @@ graph TD
 
 1.  **Ingest Emails**:
     ```bash
-    python horse_email_parser.py
+    python ingest_from_email.py
     ```
 2.  **Detect Horses**:
     ```bash
