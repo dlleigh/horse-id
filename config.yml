@@ -4,7 +4,7 @@
 # --- File and Directory Paths ---
 # Use {data_root} as a placeholder to keep paths relative and clean.
 paths:
-  data_root: "~/google-drive/horseID Project/data"
+  data_root: "~/google-drive/horseID Project/data-sandbox"
   dataset_dir: "{data_root}/horse_photos"
   manifest_file: "{data_root}/horse_photos_manifest.csv"
   # Directory for pre-trained models and calibrations
@@ -24,7 +24,8 @@ gmail:
 
 # --- Multi Horse Detector Settings ---
 detection:
-  yolo_model: 'yolov5l' # Options: yolov5s, yolov5m, yolov5l, yolov5x
+  #yolo_model: 'yolov8n-seg.pt' # Options: yolov5s, yolov5m, yolov5l, yolov5x
+  yolo_model: 'yolo11x-seg.pt' 
   confidence_threshold: 0.1
   # If multiple horses are detected, but one is significantly larger than others,
   # consider it a single primary detection. e.g., 2.0 means twice as large.

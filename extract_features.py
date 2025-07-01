@@ -31,12 +31,30 @@ class Horses(datasets.WildlifeDataset):
                 continue
             if 'num_horses_detected' in row and row['num_horses_detected'] in ['NONE', 'MULTIPLE']:
                 continue
+
+            # Parse segmentation mask from "x1 y1;x2 y2;..." into a list of tuples.
+            # This format is expected by wildlife_tools.data.ImageDataset.
+            segmentation_data = None
+            mask_str = row.get('segmentation_mask')
+            if mask_str and pd.notna(mask_str) and isinstance(mask_str, str):
+                try:
+                    points = [
+                        (float(p.split()[0]), float(p.split()[1]))
+                        for p in mask_str.split(';') if ' ' in p
+                    ]
+                    if points:
+                        segmentation_data = points
+                except (ValueError, IndexError):
+                    # If parsing fails, segmentation_data remains None, and the full image is used.
+                    pass
+
             rows.append({
                 'image_id': row['filename'],
                 'identity': row['canonical_id'],
                 'horse_name': row['horse_name'],
                 'path': row['filename'],
-                'date': pd.to_datetime(str(row['email_date']), format='%Y%m%d')
+                'date': pd.to_datetime(str(row['email_date']), format='%Y%m%d'),
+                'segmentation': segmentation_data,
             })
         
         df = pd.DataFrame(rows)
@@ -73,7 +91,13 @@ def extract_and_save_features(image_dir, manifest_file, features_dir):
     horses_dataset_obj = Horses(image_dir, manifest_file_path=manifest_file)
     horses_df_all = horses_dataset_obj.create_catalogue()
     transform = T.Compose([T.Resize([384, 384]), T.ToTensor()])
-    image_dataset = ImageDataset(horses_df_all, image_dir, transform=transform)
+    image_dataset = ImageDataset(
+        horses_df_all,
+        image_dir,
+        transform=transform,
+        segmentation='segmentation',
+        segmentation_kind='polygon'
+    )
 
     print("Extracting features for all database images...")
 
