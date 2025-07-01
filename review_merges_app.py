@@ -122,28 +122,61 @@ if st.session_state.merge_results_df.empty:
     st.warning("Merge results file is empty. No pairs to review.")
     st.stop()
 
-# --- Navigation ---
+# --- Sidebar for Navigation ---
 total_pairs = len(st.session_state.merge_results_df)
 if total_pairs == 0:
     st.info("No pairs in the merge results file to review.")
     st.stop()
 
-# Ensure index is within bounds
-st.session_state.current_review_idx = max(0, min(st.session_state.current_review_idx, total_pairs - 1))
+st.sidebar.header("Merge Navigation")
 
-col_nav1, col_nav2, col_nav3 = st.columns([1,2,1])
-with col_nav1:
-    if st.button("⬅️ Previous Pair") and st.session_state.current_review_idx > 0:
+# --- Search and Sequential Navigation ---
+search_term = st.sidebar.text_input("Search by Horse Name or Message ID", "")
+
+nav_cols = st.sidebar.columns(2)
+if nav_cols[0].button("⬅️ Previous", use_container_width=True) and st.session_state.current_review_idx > 0:
+    st.session_state.current_review_idx -= 1
+    st.session_state.feedback_message = ""
+    st.rerun()
+
+if nav_cols[1].button("Next ➡️", use_container_width=True) and st.session_state.current_review_idx < total_pairs - 1:
+    st.session_state.current_review_idx += 1
+    st.session_state.feedback_message = ""
+    st.rerun()
+
+st.sidebar.write(f"Reviewing Pair: **{st.session_state.current_review_idx + 1} / {total_pairs}**")
+st.sidebar.divider()
+
+# --- Filterable Jump-to List ---
+if search_term:
+    search_term_lower = search_term.lower()
+    filtered_df = st.session_state.merge_results_df[
+        st.session_state.merge_results_df['horse_name'].str.lower().str.contains(search_term_lower, na=False) |
+        st.session_state.merge_results_df['message_id_a'].str.lower().str.contains(search_term_lower, na=False) |
+        st.session_state.merge_results_df['message_id_b'].str.lower().str.contains(search_term_lower, na=False)
+    ]
+else:
+    filtered_df = st.session_state.merge_results_df
+
+with st.sidebar.container(height=500):
+    for idx, row in filtered_df.iterrows():
+        msg_id_a = str(row['message_id_a'])
+        msg_id_b = str(row['message_id_b'])
+        _, cid_a, _, name_a = get_images_and_info_for_message_id(st.session_state.manifest_df, msg_id_a)
+        _, cid_b, _, _ = get_images_and_info_for_message_id(st.session_state.manifest_df, msg_id_b)
+
+        is_merged = (cid_a is not None and cid_a == cid_b)
+        status_emoji = "✅" if is_merged else "❌"
+        button_label = f"{status_emoji} {name_a}: {msg_id_a[:8]}... vs {msg_id_b[:8]}..."
+
+        if st.button(button_label, key=f"jump_{idx}", use_container_width=True):
+            st.session_state.current_review_idx = idx
+            st.session_state.feedback_message = f"Jumped to pair {idx + 1}."
+            st.rerun()
+
+# --- Main Page Content ---
+if st.session_state.current_review_idx > 0 and st.session_state.current_review_idx >= len(st.session_state.merge_results_df):
         st.session_state.current_review_idx -= 1
-        st.session_state.feedback_message = ""
-        st.rerun()
-with col_nav2:
-    st.write(f"Reviewing Pair: **{st.session_state.current_review_idx + 1} / {total_pairs}**")
-with col_nav3:
-    if st.button("Next Pair ➡️") and st.session_state.current_review_idx < total_pairs - 1:
-        st.session_state.current_review_idx += 1
-        st.session_state.feedback_message = ""
-        st.rerun()
 
 # Display feedback message
 if st.session_state.feedback_message:
@@ -151,6 +184,9 @@ if st.session_state.feedback_message:
     st.session_state.feedback_message = "" # Clear after displaying
 
 # --- Get current pair from similarity log ---
+# Ensure index is within bounds after potential filtering/actions
+st.session_state.current_review_idx = max(0, min(st.session_state.current_review_idx, total_pairs - 1))
+
 current_pair = st.session_state.merge_results_df.iloc[st.session_state.current_review_idx]
 
 msg_id_a_log = str(current_pair['message_id_a'])
