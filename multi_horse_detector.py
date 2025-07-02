@@ -26,7 +26,7 @@ def count_horses(image_path, model, confidence_threshold):
     Returns a tuple: (status, ratio, largest_bbox, largest_mask_str).
     - status: "NONE", "SINGLE", or "MULTIPLE".
     - ratio: Ratio of the largest horse area to the next largest, or NaN.
-    - largest_bbox: Normalized [x, y, width, height] of the largest horse, or None.
+    - largest_bbox: Pixel coordinates [x, y, width, height] of the largest horse, or None.
     - largest_mask_str: Custom string representation of the largest horse's segmentation mask polygon, or None.
     """
     default_return = "NONE", float('nan'), None, None
@@ -62,14 +62,21 @@ def count_horses(image_path, model, confidence_threshold):
     largest_idx_in_horses = areas.argmax()
     largest_original_idx = horse_indices[largest_idx_in_horses]
 
+    # Get image dimensions for pixel coordinate conversion
+    img_height, img_width = result.orig_shape
+    
     # Get bounding box in normalized xywh format (x_center, y_center, width, height)
     xywhn = result.boxes.xywhn[largest_original_idx].cpu().numpy().flatten()
     x_center, y_center, width, height = xywhn
 
-    # Convert center x,y to top-left x,y for the final bbox format
-    x = x_center - (width / 2)
-    y = y_center - (height / 2)
-    largest_bbox_xywh = [x, y, width, height]
+    # Convert normalized coordinates to pixel coordinates
+    # Convert center x,y to top-left x,y and scale to pixel coordinates
+    x_pixel = int((x_center - (width / 2)) * img_width)
+    y_pixel = int((y_center - (height / 2)) * img_height)
+    width_pixel = int(width * img_width)
+    height_pixel = int(height * img_height)
+    
+    largest_bbox_xywh = [x_pixel, y_pixel, width_pixel, height_pixel]
     largest_mask_xy = horse_masks.xy[largest_idx_in_horses]
     # Create a comma-free string format to avoid quoting issues in CSV.
     # Format: "x1 y1;x2 y2;..." for a single polygon.
