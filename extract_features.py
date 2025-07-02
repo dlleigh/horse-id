@@ -7,7 +7,6 @@ import sys
 
 # Assume WildlifeDataset and ImageDataset are available or copy/import them
 from wildlife_datasets import datasets
-from wildlife_tools.data import ImageDataset
 from wildlife_tools.features import DeepFeatures
 import torchvision.transforms as T
 import timm
@@ -89,15 +88,12 @@ def setup_paths(config):
 def extract_and_save_features(image_dir, manifest_file, features_dir):
     print("Initializing Horse dataset for feature extraction...")
     horses_dataset_obj = Horses(image_dir, manifest_file_path=manifest_file)
-    horses_df_all = horses_dataset_obj.create_catalogue()
     transform = T.Compose([T.Resize([384, 384]), T.ToTensor()])
-    image_dataset = ImageDataset(
-        horses_df_all,
-        image_dir,
-        transform=transform,
-        segmentation='segmentation',
-        segmentation_kind='polygon'
-    )
+    # Configure WildlifeDataset to use segmentation for masking
+    horses_dataset_obj.transform = transform
+    horses_dataset_obj.img_load = "full_mask"  # Mask the background using segmentation mask
+    horses_dataset_obj.load_label = True  # Ensure we return (image, label) tuples
+    image_dataset = horses_dataset_obj
 
     print("Extracting features for all database images...")
 
