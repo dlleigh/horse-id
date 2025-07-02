@@ -5,7 +5,7 @@
 # Use {data_root} as a placeholder to keep paths relative and clean.
 paths:
   data_root: "~/google-drive/horseID Project/data-sandbox"
-  dataset_dir: "{data_root}/horse_photos"
+  dataset_dir: "/Users/dleigh/google-drive/horseID Project/data/horse_photos"
   manifest_file: "{data_root}/horse_photos_manifest.csv"
   # Directory for pre-trained models and calibrations
   calibration_dir: "{data_root}/calibrations"
