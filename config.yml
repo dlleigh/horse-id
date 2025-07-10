@@ -24,13 +24,59 @@ gmail:
 
 # --- Multi Horse Detector Settings ---
 detection:
-  yolo_model: 'yolov5l' # Options: yolov5s, yolov5m, yolov5l, yolov5x
-  confidence_threshold: 0.1
+  yolo_model: 'yolo11x-seg.pt' # Options: yolov5s, yolov5m, yolov5l, yolov5x
+  confidence_threshold: 0.5
   # If multiple horses are detected, but one is significantly larger than others,
   # consider it a single primary detection. e.g., 2.0 means twice as large.
   size_ratio_for_single_horse: 2.2
   # The detector will read from manifest_file and write to this file
   detected_manifest_file: "{data_root}/horse_photos_manifest_detected.csv"
+  
+  # --- Depth Analysis Weights ---
+  depth_analysis:
+    vertical_position_weight: 0.3      # Weight for bottom position in frame
+    occlusion_boost_weight: 0.4        # Boost for overlapping horses in foreground
+    occlusion_penalty_weight: 0.2      # Penalty for overlapping horses in background
+    overlap_threshold: 0.1             # Minimum overlap to consider for occlusion analysis
+    perspective_score_boost: 0.2       # Score boost for size matching position
+    perspective_size_threshold: 0.1    # Minimum size threshold for perspective correction
+    center_position_weight: 0.1        # Weight for horizontal center positioning
+    
+  # --- Edge Cropping Detection ---
+  edge_cropping:
+    edge_threshold_pixels: 5           # Distance from edge to consider "touching" (pixels)
+    severity_edge_weight: 0.12         # Severity score per edge touched
+    severity_large_object_weight: 0.4  # Additional severity for large objects at edges
+    severity_close_margin_weight: 0.3  # Additional severity for very close margins
+    large_object_width_threshold: 0.8  # Width ratio threshold for "large object"
+    large_object_height_threshold: 0.8 # Height ratio threshold for "large object"
+    close_margin_threshold: 1          # Pixel threshold for "very close" to edge
+    
+  # --- Subject Horse Identification ---
+  subject_identification:
+    area_weight: 0.6                   # Weight for area in subject scoring
+    depth_weight: 0.4                  # Weight for depth in subject scoring
+    edge_penalty_factor: 0.6           # How much to penalize edge-cropped horses (0-1)
+    
+  # --- Single vs Multiple Classification ---
+  classification:
+    depth_dominance_threshold: 0.15    # Required depth score advantage for dominance (reduced from 0.3)
+    extreme_overlap_threshold: 0.7     # Overlap threshold for "extreme occlusion"
+    
+    # Strong size dominance can override depth requirements
+    strong_size_dominance_threshold: 1.8  # If size ratio > this, allow SINGLE without depth dominance
+    
+    # Edge cropping advantage thresholds
+    edge_advantage_significant_threshold: 0.30  # Severity difference for significant advantage
+    edge_advantage_moderate_threshold: 0.15     # Severity difference for moderate advantage
+    
+    # Relaxed requirements when edge cropping detected
+    edge_significant_size_reduction: 0.25        # Reduce size requirement by this factor
+    edge_significant_depth_reduction: 0.7       # Reduce depth requirement by this factor
+    edge_significant_scaling_factor: 1.5          # Scaling factor for severity advantage
+    
+    edge_moderate_size_factor: 0.6              # Size factor for moderate edge advantage
+    edge_moderate_depth_threshold: 0.1          # Depth threshold for moderate edge advantage
 
 
 # --- Similarity/Merging Settings ---
@@ -41,6 +87,8 @@ similarity:
   # The merge script will read from the detected_manifest_file.
   # This ensures it only works on data that has been processed by the detector.
   inference_threshold: 0.8
+  master_horse_location_file: "{data_root}/Master Horse-Location List.xlsx"
+  
 
 # --- S3 Settings ---
 s3:

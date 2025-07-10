@@ -8,4 +8,5 @@ sandbox
 *.pt
 *.html
 *.csv
+__pycache__
 horse-id-data

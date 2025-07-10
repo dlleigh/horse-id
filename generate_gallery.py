@@ -2,6 +2,7 @@ import pandas as pd
 import os
 import yaml
 import html # Used for escaping HTML characters
+import json # For safely handling segmentation data
 
 # --- Load Configuration ---
 try:
@@ -44,7 +45,7 @@ def create_html_gallery(df, output_path, manifest_display_name, current_manifest
         print("Warning: 'canonical_id' or 'horse_name' column not found. 'Show Unmerged (Multiple IDs)' filter may not work.")
 
     # Start building the HTML string
-    html_content = """
+    html_content = f"""
     <!DOCTYPE html>
     <html lang="en">
     <head>
@@ -52,39 +53,39 @@ def create_html_gallery(df, output_path, manifest_display_name, current_manifest
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>Horse Gallery - {manifest_display_name}</title>
         <style>
-            body { font-family: sans-serif; margin: 0; background-color: #f4f4f4; }
-            .header { background-color: #333; color: white; padding: 15px; text-align: center; }
-            .controls { padding: 20px; text-align: center; background-color: #fff; border-bottom: 1px solid #ddd;}
-            .controls label { font-weight: bold; margin-right: 10px; }
+            body {{ font-family: sans-serif; margin: 0; background-color: #f4f4f4; }}
+            .header {{ background-color: #333; color: white; padding: 15px; text-align: center; }}
+            .controls {{ padding: 20px; text-align: center; background-color: #fff; border-bottom: 1px solid #ddd;}}
+            .controls label {{ font-weight: bold; margin-right: 10px; }}
             .manifest-nav {{ padding: 10px 20px; background-color: #e9e9e9; text-align: center; border-bottom: 1px solid #ccc; font-size: 0.9em; }}
-            #horse-filter, #detection-filter, #size-ratio-filter { padding: 8px; border-radius: 4px; border: 1px solid #ccc; margin-left: 5px;}
-            .gallery-container {
+            #horse-filter, #detection-filter, #size-ratio-filter {{ padding: 8px; border-radius: 4px; border: 1px solid #ccc; margin-left: 5px;}}
+            .gallery-container {{
                 display: grid;
                 grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
                 gap: 15px;
                 padding: 20px;
-            }
-            .gallery-item {
+            }}
+            .gallery-item {{
                 border: 1px solid #ddd;
                 border-radius: 5px;
                 background-color: #fff;
                 box-shadow: 0 2px 4px rgba(0,0,0,0.1);
                 overflow: hidden;
                 transition: transform 0.2s;
-            }
-            .gallery-item:hover { transform: scale(1.03); }
-            .gallery-item img {
+            }}
+            .gallery-item:hover {{ transform: scale(1.03); }}
+            .gallery-item img {{
                 width: 100%;
                 height: 200px;
                 object-fit: cover;
                 display: block;
-            }
-            .caption { padding: 10px; font-size: 0.9em; }
-            .caption p { margin: 5px 0; }
-            .caption .label { font-weight: bold; color: #555; }
+            }}
+            .caption {{ padding: 10px; font-size: 0.9em; }}
+            .caption p {{ margin: 5px 0; }}
+            .caption .label {{ font-weight: bold; color: #555; }}
             
             /* Modal styles */
-            .modal {
+            .modal {{
                 display: none;
                 position: fixed;
                 z-index: 1000;
@@ -97,37 +98,50 @@ def create_html_gallery(df, output_path, manifest_display_name, current_manifest
                 /* display: flex; */ /* Removed to keep modal hidden by default */
                 align-items: center;
                 justify-content: center;
-            }
-            .modal-container {
+            }}
+            .modal-image-wrapper {{
+                position: relative; /* For positioning the canvas */
+                display: flex; /* To center the image if it's smaller than the container */
+                align-items: center;
+                justify-content: center;
+                flex: 1;
+                background: #000;
+            }}
+            .modal-container {{
                 display: flex;
                 max-width: 90%;
                 max-height: 90vh;
                 background: #fff;
                 border-radius: 8px;
                 overflow: hidden;
-            }
-            .modal-image {
-                flex: 1;
+            }}
+            .modal-image {{
                 max-height: 90vh;
+                max-width: 100%;
                 object-fit: contain;
-                background: #000;
-            }
-            .modal-metadata {
+            }}
+            #modalCanvas {{
+                position: absolute;
+                top: 0;
+                left: 0;
+                pointer-events: none; /* Allows clicking through the canvas to the image if needed */
+            }}
+            .modal-metadata {{
                 width: 300px;
                 padding: 20px;
                 background: #fff;
                 overflow-y: auto;
-            }
-            .modal-metadata h3 {
+            }}
+            .modal-metadata h3 {{
                 margin-top: 0;
                 margin-bottom: 15px;
                 color: #333;
-            }
-            .modal-metadata p {
+            }}
+            .modal-metadata p {{
                 margin: 8px 0;
                 font-size: 14px;
-            }
-            .modal-close {
+            }}
+            .modal-close {{
                 position: absolute;
                 right: 20px;
                 top: 10px;
@@ -136,7 +150,7 @@ def create_html_gallery(df, output_path, manifest_display_name, current_manifest
                 font-weight: bold;
                 cursor: pointer;
                 z-index: 1001;
-            }
+            }}
         </style>
     </head>
     <body>
@@ -229,6 +243,11 @@ def create_html_gallery(df, output_path, manifest_display_name, current_manifest
         last_merged_formatted = pd.to_datetime(row.get('last_merged_timestamp')).strftime('%Y-%m-%d') if pd.notna(row.get('last_merged_timestamp')) else 'N/A'
         status_val = html.escape(str(row.get('status', ''))) # Default to empty string if missing
 
+        # --- Get BBox and Mask data ---
+        bbox_data = [row.get('bbox_x'), row.get('bbox_y'), row.get('bbox_width'), row.get('bbox_height')]
+        bbox_json = html.escape(json.dumps(bbox_data)) if all(pd.notna(x) for x in bbox_data) else ''
+        segmentation_mask_val = html.escape(str(row.get('segmentation_mask', '')))
+
         # Update the gallery-item div content in the main loop
         html_content += f"""
         <div class="gallery-item" 
@@ -246,6 +265,8 @@ def create_html_gallery(df, output_path, manifest_display_name, current_manifest
             data-date-added="{date_added_val}"
             data-last-merged="{last_merged_formatted}"
             data-status="{status_val}"
+            data-bbox='{bbox_json}'
+            data-segmentation-mask='{segmentation_mask_val}'
             onclick="openModal(this)">
             <img src="{relative_image_path}" alt="{filename_safe}" loading="lazy">
             <div class="caption">
@@ -266,10 +287,72 @@ def create_html_gallery(df, output_path, manifest_display_name, current_manifest
         // Capture initial horse options as soon as the script block starts and the DOM element is available
         const initialHorseOptionsHTML = document.getElementById('horse-filter') ? document.getElementById('horse-filter').innerHTML : '';
 
+        function drawOverlay(canvas, image, bboxData, maskDataStr) {
+            const ctx = canvas.getContext('2d');
+            const scaleX = image.width / image.naturalWidth;
+            const scaleY = image.height / image.naturalHeight;
+
+            // Set canvas size to match the displayed image size
+            canvas.width = image.width;
+            canvas.height = image.height;
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Draw Bounding Box
+            if (bboxData && bboxData.length === 4) {
+                const [x_pixel, y_pixel, w_pixel, h_pixel] = bboxData;
+                // Scale pixel coordinates to match displayed image size
+                const x = x_pixel * scaleX;
+                const y = y_pixel * scaleY;
+                const w = w_pixel * scaleX;
+                const h = h_pixel * scaleY;
+                
+                ctx.strokeStyle = 'rgba(255, 0, 0, 0.8)'; // Red
+                ctx.lineWidth = 2;
+                ctx.strokeRect(x, y, w, h);
+            }
+
+            // Draw Segmentation Mask
+            if (maskDataStr) { // Check for non-empty string
+                try {
+                    // The mask string is a custom format: "x1 y1;x2 y2;..."
+                    // It represents a single polygon.
+                    const points = maskDataStr.split(';').map(p => {
+                        const coords = p.split(' ');
+                        return [parseFloat(coords[0]), parseFloat(coords[1])];
+                    });
+                    // The drawing logic expects a list of polygons.
+                    const polygons = [points];
+                    ctx.fillStyle = 'rgba(0, 255, 0, 0.4)'; // Green with transparency
+                    ctx.strokeStyle = 'rgba(0, 200, 0, 0.9)';
+                    ctx.lineWidth = 1;
+
+                    polygons.forEach(polygon => {
+                        ctx.beginPath();
+                        polygon.forEach((point, index) => {
+                            const x = point[0] * scaleX;
+                            const y = point[1] * scaleY;
+                            if (index === 0) {
+                                ctx.moveTo(x, y);
+                            } else {
+                                ctx.lineTo(x, y);
+                            }
+                        });
+                        ctx.closePath();
+                        ctx.fill();
+                        ctx.stroke();
+                    });
+                } catch (e) {
+                    console.error("Error parsing segmentation mask:", e, maskDataStr);
+                }
+            }
+        }
+
         function openModal(element) {
             const modal = document.getElementById("imageModal");
             const modalImg = document.getElementById("modalImage");
             const metadataDiv = document.getElementById("modalMetadataContent");
+            const canvas = document.getElementById("modalCanvas");
+            const ctx = canvas.getContext('2d');
             
             // Set image
             const img = element.querySelector('img');
@@ -295,6 +378,26 @@ def create_html_gallery(df, output_path, manifest_display_name, current_manifest
             `;
             metadataDiv.innerHTML = metadata;
             
+            // Clear previous drawings and draw new overlay once image is loaded
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            modalImg.onload = function() {
+                const bboxAttr = element.getAttribute('data-bbox');
+                const maskAttr = element.getAttribute('data-segmentation-mask');
+                let bboxData = null;
+                if (bboxAttr) {
+                    try {
+                        bboxData = JSON.parse(bboxAttr);
+                    } catch (e) {
+                        console.error("Error parsing bbox data:", e, bboxAttr);
+                    }
+                }
+                drawOverlay(canvas, modalImg, bboxData, maskAttr);
+            };
+            // If image is already cached, onload might not fire, so call it directly
+            if (modalImg.complete) {
+                modalImg.onload();
+            }
+
             modal.style.display = "flex";
         }
         
@@ -415,7 +518,10 @@ def create_html_gallery(df, output_path, manifest_display_name, current_manifest
     <div id="imageModal" class="modal">
         <span class="modal-close" onclick="closeModal()">&times;</span>
         <div class="modal-container">
-            <img class="modal-image" id="modalImage">
+            <div class="modal-image-wrapper">
+                <img class="modal-image" id="modalImage">
+                <canvas id="modalCanvas"></canvas>
+            </div>
             <div class="modal-metadata" id="modalMetadata">
                 <h3>Image Details</h3>
                 <div id="modalMetadataContent"></div>
