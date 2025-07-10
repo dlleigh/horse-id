@@ -11,6 +11,7 @@ from tqdm import tqdm
 from itertools import combinations
 from collections import defaultdict
 import torchvision.transforms as T
+import re
 
 from wildlife_tools.features import DeepFeatures, SuperPointExtractor, AlikedExtractor, DiskExtractor, SiftExtractor
 from wildlife_tools.similarity import MatchLOFTR, CosineSimilarity, MatchLightGlue
@@ -31,6 +32,148 @@ OUTPUT_MANIFEST_FILE = config['paths']['merged_manifest_file'].format(data_root=
 CALIBRATION_DIR = config['paths']['calibration_dir'].format(data_root=DATA_ROOT) # Keep for WildFusion
 MERGE_RESULTS_FILE = config['paths']['merge_results_file'].format(data_root=DATA_ROOT) # New name
 SIMILARITY_THRESHOLD = config['similarity']['merge_threshold']
+MASTER_HORSE_LOCATION_FILE = config['similarity']['master_horse_location_file'].format(data_root=DATA_ROOT)
+
+
+def load_recurring_names():
+    """
+    Load the master horse location file and identify horses with recurring names
+    (names that end with a number like 'Cowboy 1', 'Cowboy 2').
+    Returns a set of base names that have recurring horses.
+    """
+    if not os.path.exists(MASTER_HORSE_LOCATION_FILE):
+        print(f"Warning: Master horse location file not found at {MASTER_HORSE_LOCATION_FILE}")
+        return set()
+    
+    try:
+        print(f"Loading master horse location file: {MASTER_HORSE_LOCATION_FILE}")
+        # Read the Excel file
+        df = pd.read_excel(MASTER_HORSE_LOCATION_FILE, sheet_name=0)
+        
+        # Find herd headers and their positions (following parse_horse_herds.py logic)
+        herd_info = []
+        row_3 = df.iloc[3]  # Row 3 contains herd names and counts
+        
+        # Parse herd information from row 3
+        for i in range(0, len(row_3), 2):
+            herd_name = row_3.iloc[i]
+            if pd.notna(herd_name) and herd_name != "Feed:":
+                herd_info.append({
+                    'name': herd_name,
+                    'col_index': i
+                })
+        
+        # Extract all horse names
+        all_horse_names = []
+        for herd in herd_info:
+            col_index = herd['col_index']
+            
+            # Start from row 5 (index 4) to skip header rows
+            for row_idx in range(5, len(df)):
+                horse_name = df.iloc[row_idx, col_index]
+                
+                # If we find a valid horse name (not NaN and not empty)
+                if pd.notna(horse_name) and str(horse_name).strip():
+                    all_horse_names.append(str(horse_name).strip())
+        
+        # Find horses with numbered names (e.g., "Cowboy 1", "Sunny 2")
+        numbered_horses = []
+        for horse_name in all_horse_names:
+            # Match pattern: any characters followed by space and number
+            if re.match(r'^.+\s+\d+$', horse_name):
+                numbered_horses.append(horse_name)
+        
+        # Extract base names (everything before the last space and number)
+        recurring_base_names = set()
+        for horse_name in numbered_horses:
+            # Remove the last space and number to get the base name
+            base_name = re.sub(r'\s+\d+$', '', horse_name)
+            recurring_base_names.add(base_name)
+        
+        print(f"Found {len(numbered_horses)} horses with numbered names")
+        print(f"Identified {len(recurring_base_names)} recurring base names: {sorted(recurring_base_names)}")
+        
+        return recurring_base_names
+        
+    except Exception as e:
+        print(f"Error loading master horse location file: {e}")
+        return set()
+
+
+def is_recurring_name(horse_name, recurring_base_names):
+    """
+    Check if a horse name belongs to a recurring name pattern.
+    
+    Args:
+        horse_name (str): The horse name to check
+        recurring_base_names (set): Set of base names that have recurring horses
+    
+    Returns:
+        bool: True if the horse name is part of a recurring pattern
+    """
+    # Check if the name itself ends with a number (e.g., "Cowboy 1")
+    if re.match(r'^.+\s+\d+$', horse_name):
+        base_name = re.sub(r'\s+\d+$', '', horse_name)
+        return base_name in recurring_base_names
+    
+    # Check if the base name (without number) is in recurring names
+    return horse_name in recurring_base_names
+
+
+def auto_merge_non_recurring_names(output_df, recurring_base_names):
+    """
+    Automatically merge horses with non-recurring names without detailed analysis.
+    
+    Args:
+        output_df (DataFrame): The output dataframe to modify
+        recurring_base_names (set): Set of base names that have recurring horses
+    
+    Returns:
+        DataFrame: Modified dataframe with auto-merged non-recurring names
+    """
+    # Filter for only single horses
+    df_single = output_df[output_df['num_horses_detected'] == 'SINGLE'].copy()
+    
+    # Group by horse name
+    grouped_by_name = df_single.groupby('horse_name')
+    
+    merge_count = 0
+    for name, group in grouped_by_name:
+        # Skip if this is a recurring name - it will be handled by detailed analysis
+        if is_recurring_name(name, recurring_base_names):
+            continue
+            
+        # Skip if only one message (nothing to merge)
+        unique_message_ids = group['message_id'].unique()
+        if len(unique_message_ids) <= 1:
+            continue
+            
+        print(f"Auto-merging non-recurring horse '{name}' across {len(unique_message_ids)} messages")
+        
+        # Get all canonical IDs for this name
+        canonical_ids = group['canonical_id'].unique()
+        
+        if len(canonical_ids) > 1:
+            # Choose the lowest ID as the final canonical ID
+            final_id = min(canonical_ids)
+            ids_to_merge = [cid for cid in canonical_ids if cid != final_id]
+            
+            # Update all rows with this horse name to use the final canonical ID
+            merge_timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            rows_to_update_mask = (output_df['horse_name'] == name) & (output_df['canonical_id'].isin(ids_to_merge))
+            
+            output_df.loc[rows_to_update_mask, 'canonical_id'] = final_id
+            output_df.loc[rows_to_update_mask, 'last_merged_timestamp'] = pd.to_datetime(merge_timestamp)
+            
+            merge_count += 1
+            print(f"  Merged IDs {ids_to_merge} into {final_id}")
+    
+    if merge_count > 0:
+        print(f"Auto-merged {merge_count} non-recurring horse names")
+    else:
+        print("No non-recurring horse names required merging")
+    
+    return output_df
 
 
 def load_wildfusion_system():
@@ -174,6 +317,10 @@ def find_connected_components(graph):
 def main():
     """Merges horse identities in the manifest based on photo similarity."""
     print("Starting horse identity merging process...")
+    
+    # Load recurring names from master horse location file
+    recurring_base_names = load_recurring_names()
+    
     wildfusion = load_wildfusion_system()
 
     # INPUT_MANIFEST_FILE is config['detection']['detected_manifest_file']
@@ -229,6 +376,10 @@ def main():
     output_df['canonical_id'] = pd.to_numeric(output_df['canonical_id'], errors='coerce').astype('Int64')
     output_df['original_canonical_id'] = pd.to_numeric(output_df['original_canonical_id'], errors='coerce').astype('Int64')
     output_df['last_merged_timestamp'] = pd.to_datetime(output_df['last_merged_timestamp'], errors='coerce').fillna(pd.NaT)
+    
+    # Auto-merge non-recurring horse names without detailed analysis
+    print("\n=== Auto-merging non-recurring horse names ===")
+    output_df = auto_merge_non_recurring_names(output_df, recurring_base_names)
 
     # --- Load existing merge results ---
     comparison_results_cache = {} # Key: frozenset({cid_a, cid_b}), Value: dict of log entry
@@ -260,8 +411,13 @@ def main():
 
     # Group by the non-unique horse name
     grouped_by_name = df_single.groupby('horse_name')
+    
+    print(f"\n=== Detailed analysis for recurring horse names ===")
 
     for name, group in tqdm(grouped_by_name, desc="Processing names"):
+        # Only perform detailed analysis for recurring names
+        if not is_recurring_name(name, recurring_base_names):
+            continue  # Skip non-recurring names as they were already auto-merged
         # CHANGED: The unit of comparison is now message_id, not canonical_id.
         unique_message_ids = group['message_id'].unique()
 
