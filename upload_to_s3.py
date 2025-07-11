@@ -3,6 +3,7 @@ import sys
 import yaml
 import boto3
 import argparse
+import pandas as pd
 from botocore.exceptions import ClientError
 
 # --- Configuration ---
@@ -54,6 +55,34 @@ def upload_file(s3_client, bucket_name, local_path, s3_key):
         return False
     return True
 
+def clean_manifest_for_upload(manifest_path):
+    """
+    Remove the segmentation_mask column from the manifest file before uploading.
+    Returns the path to the cleaned manifest file.
+    """
+    try:
+        # Read the manifest file
+        df = pd.read_csv(manifest_path)
+        
+        # Check if segmentation_mask column exists
+        if 'segmentation_mask' in df.columns:
+            print(f"  Removing 'segmentation_mask' column from manifest...")
+            df = df.drop('segmentation_mask', axis=1)
+            
+            # Create a temporary cleaned manifest file
+            cleaned_manifest_path = manifest_path.replace('.csv', '_cleaned.csv')
+            df.to_csv(cleaned_manifest_path, index=False)
+            print(f"  Created cleaned manifest at: {cleaned_manifest_path}")
+            return cleaned_manifest_path
+        else:
+            print(f"  No 'segmentation_mask' column found in manifest")
+            return manifest_path
+            
+    except Exception as e:
+        print(f"  Warning: Could not clean manifest file: {e}")
+        print(f"  Uploading original manifest file")
+        return manifest_path
+
 def main():
     """Main function to handle argument parsing and trigger the upload."""
 
@@ -63,10 +92,19 @@ def main():
     
     s3_client = boto3.client('s3')
 
-    # 1. Upload the merged manifest file
+    # 1. Clean and upload the merged manifest file
     print("\n--- Uploading Merged Manifest ---")
-    manifest_s3_key = os.path.basename(merged_manifest_path)
-    upload_file(s3_client, bucket_name, merged_manifest_path, manifest_s3_key)
+    cleaned_manifest_path = clean_manifest_for_upload(merged_manifest_path)
+    manifest_s3_key = os.path.basename(merged_manifest_path)  # Use original name for S3 key
+    upload_success = upload_file(s3_client, bucket_name, cleaned_manifest_path, manifest_s3_key)
+    
+    # Clean up temporary file if it was created
+    if cleaned_manifest_path != merged_manifest_path:
+        try:
+            os.remove(cleaned_manifest_path)
+            print(f"  Cleaned up temporary file: {cleaned_manifest_path}")
+        except Exception as e:
+            print(f"  Warning: Could not remove temporary file {cleaned_manifest_path}: {e}")
 
     # 2. Upload the contents of the features directory
     print("\n--- Uploading Features Directory ---")
