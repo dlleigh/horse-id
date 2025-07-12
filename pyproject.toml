@@ -1,0 +1,35 @@
+[tool.coverage.run]
+source = ["."]
+omit = [
+    "tests/*",
+    "test_*",
+    "*test*",
+    "venv/*",
+    "test_env/*",
+    ".venv/*",
+    "*/site-packages/*",
+    "*/__pycache__/*",
+    "*/conftest.py",
+    "run_tests*.py",
+    "setup_test_env.sh",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "if self.debug:",
+    "if settings.DEBUG",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if 0:",
+    "if __name__ == .__main__.:",
+    "class .*\\bProtocol\\):",
+    "@(abc\\.)?abstractmethod",
+]
+
+[tool.coverage.html]
+directory = "test-results/coverage-html"
+
+[tool.coverage.xml]
+output = "test-results/coverage.xml"
