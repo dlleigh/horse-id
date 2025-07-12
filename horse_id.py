@@ -76,8 +76,9 @@ def setup_paths(config):
         data_root = os.path.expanduser(data_root_config)
         manifest_file = config['paths']['merged_manifest_file'].format(data_root=data_root)
         features_dir = config['paths']['features_dir'].format(data_root=data_root)
+        horse_herds_file = config['paths']['horse_herds_file'].format(data_root=data_root)
         s3_bucket_name = config['s3']['bucket_name']
-        return manifest_file, features_dir, s3_bucket_name
+        return manifest_file, features_dir, horse_herds_file, s3_bucket_name
     except KeyError as e:
         logger.error(f"Error: Missing path configuration for '{e}' in '{CONFIG_FILE}'.")
         raise ValueError(f"Missing path configuration: {e}")
@@ -108,13 +109,57 @@ def download_from_s3(s3_client, bucket_name, s3_key, local_path):
             logger.error(f"    ERROR: Failed to download file from S3. Reason: {e}")
         return False
 
+def load_horse_herds(horse_herds_file):
+    """
+    Load horse herds mapping from CSV file.
+    Returns a dictionary mapping horse names to list of herds.
+    """
+    if not os.path.exists(horse_herds_file):
+        logger.warning(f"Horse herds file not found: {horse_herds_file}")
+        return {}
+    
+    try:
+        df = pd.read_csv(horse_herds_file)
+        horse_herds_map = {}
+        
+        for _, row in df.iterrows():
+            horse_name = row['horse_name']
+            herd = row['herd']
+            
+            if horse_name not in horse_herds_map:
+                horse_herds_map[horse_name] = []
+            if herd not in horse_herds_map[horse_name]:
+                horse_herds_map[horse_name].append(herd)
+        
+        logger.info(f"Loaded herd information for {len(horse_herds_map)} horses")
+        return horse_herds_map
+    except Exception as e:
+        logger.error(f"Error loading horse herds file: {e}")
+        return {}
+
+def format_horse_with_herd(horse_name, horse_herds_map):
+    """
+    Format horse name with herd information.
+    Returns string like "George - Herd A" or "George - Herds A, B"
+    """
+    if horse_name not in horse_herds_map:
+        return horse_name  # No herd info available
+    
+    herds = horse_herds_map[horse_name]
+    if len(herds) == 1:
+        return f"{horse_name} - {herds[0]}"
+    elif len(herds) > 1:
+        return f"{horse_name} - Herds {', '.join(sorted(herds))}"
+    else:
+        return horse_name
+
 def process_image_for_identification(image_url, twilio_account_sid=None, twilio_auth_token=None):
     """
     Core logic to download image, extract features, and identify horse.
     Returns a dictionary of prediction results.
     """
     config = load_config()
-    manifest_file, features_dir, s3_bucket_name = setup_paths(config)
+    manifest_file, features_dir, horse_herds_file, s3_bucket_name = setup_paths(config)
 
     # --- S3 Download Logic ---
     logger.info("Checking for required files from S3...")
@@ -131,6 +176,12 @@ def process_image_for_identification(image_url, twilio_account_sid=None, twilio_
     features_s3_key = os.path.join(os.path.basename(features_dir), 'database_deep_features.pkl').replace("\\", "/")
     if not download_from_s3(s3_client, s3_bucket_name, features_s3_key, features_local_path):
         raise RuntimeError("Could not retrieve features file.")
+    
+    # 3. Download horse herds file
+    horse_herds_s3_key = os.path.basename(horse_herds_file)
+    if not download_from_s3(s3_client, s3_bucket_name, horse_herds_s3_key, horse_herds_file):
+        logger.warning("Could not retrieve horse herds file. Continuing without herd information.")
+    
     logger.info("--------------------------------------------")
 
     if not os.path.isfile(manifest_file):
@@ -145,6 +196,9 @@ def process_image_for_identification(image_url, twilio_account_sid=None, twilio_
         raise ValueError("The horse catalogue is empty. Check manifest file and Horses class.")
 
     dataset_database = ImageDataset(horses_df_all, horses_dataset_obj.root)
+    
+    # Load horse herds mapping
+    horse_herds_map = load_horse_herds(horse_herds_file)
 
     logger.info(f"Downloading image from {image_url}...")
     try:
@@ -211,12 +265,15 @@ def process_image_for_identification(image_url, twilio_account_sid=None, twilio_
         }
         logger.info("\n--- Predictions ---")        
         for pred, score in zip(predictions[0], scores[0]):
+            # Format horse name with herd information
+            horse_with_herd = format_horse_with_herd(pred, horse_herds_map)
             results['predictions'].append({
                 "identity": pred,
+                "identity_with_herd": horse_with_herd,
                 "score": score
             })
         for pred_data in results["predictions"]:
-            logger.info(f"  identity: {pred_data['identity']}, Score: {pred_data['score']:.4f}")
+            logger.info(f"  identity: {pred_data['identity_with_herd']}, Score: {pred_data['score']:.4f}")
         logger.info("--------------------------------------------")
         
         return results
@@ -297,7 +354,9 @@ def horse_id_processor_handler(event, context):
         
         response_message = "\nHorse Identification Results:\n"
         for pred in prediction_results["predictions"]:
-            response_message += f"  {pred['identity']} (Confidence: {pred['score']:.1%})\n"
+            # Use the formatted name with herd information
+            horse_display = pred.get('identity_with_herd', pred['identity'])
+            response_message += f"  {horse_display} (Confidence: {pred['score']:.1%})\n"
         # found_match = False
         # for pred in prediction_results["predictions"]:
         #     if pred['score'] >= config['similarity']['inference_threshold']:

@@ -15,6 +15,7 @@ paths:
   merged_manifest_file: "{data_root}/horse_photos_manifest_merged.csv"
   merge_results_file: "{data_root}/merge_results.csv" # Renamed from similarity_log_file
   predictions_file: "{data_root}/prediction_results.html"
+  horse_herds_file: "{data_root}/horse_herds.csv"
 
 # --- Gmail API Settings ---
 gmail:

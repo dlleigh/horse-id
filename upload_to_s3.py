@@ -24,6 +24,7 @@ def setup_paths(config):
         data_root = os.path.expanduser(config['paths']['data_root'])
         merged_manifest_file = config['paths']['merged_manifest_file'].format(data_root=data_root)
         features_dir = config['paths']['features_dir'].format(data_root=data_root)
+        horse_herds_file = config['paths']['horse_herds_file'].format(data_root=data_root)
         
         s3_bucket_name = config['s3']['bucket_name']
 
@@ -33,8 +34,9 @@ def setup_paths(config):
         if not os.path.isdir(features_dir):
             print(f"Error: Features directory not found at '{features_dir}'")
             sys.exit(1)
+        # Note: horse_herds_file is optional - we'll check existence during upload
         
-        return merged_manifest_file, features_dir, s3_bucket_name
+        return merged_manifest_file, features_dir, horse_herds_file, s3_bucket_name
     except KeyError as e:
         print(f"Error: Missing path configuration for '{e}' in '{CONFIG_FILE}'.")
         sys.exit(1)
@@ -88,7 +90,7 @@ def main():
 
     print("Loading configuration...")
     config = load_config()
-    merged_manifest_path, features_dir_path, bucket_name = setup_paths(config)
+    merged_manifest_path, features_dir_path, horse_herds_path, bucket_name = setup_paths(config)
     
     s3_client = boto3.client('s3')
 
@@ -106,7 +108,20 @@ def main():
         except Exception as e:
             print(f"  Warning: Could not remove temporary file {cleaned_manifest_path}: {e}")
 
-    # 2. Upload the contents of the features directory
+    # 2. Upload horse herds file if it exists
+    print("\n--- Uploading Horse Herds File ---")
+    if os.path.exists(horse_herds_path):
+        horse_herds_s3_key = os.path.basename(horse_herds_path)
+        upload_success = upload_file(s3_client, bucket_name, horse_herds_path, horse_herds_s3_key)
+        if upload_success:
+            print(f"  Successfully uploaded horse herds file")
+        else:
+            print(f"  Failed to upload horse herds file")
+    else:
+        print(f"  Horse herds file not found at: {horse_herds_path}")
+        print(f"  Skipping horse herds upload. Run parse_horse_herds.py first to generate this file.")
+
+    # 3. Upload the contents of the features directory
     print("\n--- Uploading Features Directory ---")
     for root, _, files in os.walk(features_dir_path):
         for filename in files:
