@@ -57,7 +57,8 @@ class TestSetupPaths:
             'paths': {
                 'data_root': '/tmp/test',
                 'merged_manifest_file': '{data_root}/merged_manifest.csv',
-                'features_dir': '{data_root}/features'
+                'features_dir': '{data_root}/features',
+                'horse_herds_file': '{data_root}/horse_herds.csv'
             },
             's3': {
                 'bucket_name': 'test-bucket'
@@ -65,10 +66,11 @@ class TestSetupPaths:
         }
         
         with patch('horse_id.os.path.expanduser', side_effect=lambda x: x):
-            manifest_file, features_dir, bucket_name = setup_paths(config)
+            manifest_file, features_dir, horse_herds_file, bucket_name = setup_paths(config)
         
         assert manifest_file == '/tmp/test/merged_manifest.csv'
         assert features_dir == '/tmp/test/features'
+        assert horse_herds_file == '/tmp/test/horse_herds.csv'
         assert bucket_name == 'test-bucket'
     
     def test_setup_paths_with_env_override(self):
@@ -77,7 +79,8 @@ class TestSetupPaths:
             'paths': {
                 'data_root': '/tmp/test',
                 'merged_manifest_file': '{data_root}/merged_manifest.csv',
-                'features_dir': '{data_root}/features'
+                'features_dir': '{data_root}/features',
+                'horse_herds_file': '{data_root}/horse_herds.csv'
             },
             's3': {
                 'bucket_name': 'test-bucket'
@@ -86,10 +89,11 @@ class TestSetupPaths:
         
         with patch.dict(os.environ, {'HORSE_ID_DATA_ROOT': '/env/override'}):
             with patch('horse_id.os.path.expanduser', side_effect=lambda x: x):
-                manifest_file, features_dir, bucket_name = setup_paths(config)
+                manifest_file, features_dir, horse_herds_file, bucket_name = setup_paths(config)
         
         assert manifest_file == '/env/override/merged_manifest.csv'
         assert features_dir == '/env/override/features'
+        assert horse_herds_file == '/env/override/horse_herds.csv'
         assert bucket_name == 'test-bucket'
     
     def test_setup_paths_missing_key(self):

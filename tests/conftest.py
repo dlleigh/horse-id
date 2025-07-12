@@ -47,7 +47,8 @@ def sample_config():
             'features_dir': '{data_root}/features',
             'calibration_dir': '{data_root}/calibration',
             'merge_results_file': '{data_root}/merge_results.csv',
-            'temp_dir': '{data_root}/temp'
+            'temp_dir': '{data_root}/temp',
+            'horse_herds_file': '{data_root}/horse_herds.csv'
         },
         'detection': {
             'yolo_model': 'yolov8n.pt',

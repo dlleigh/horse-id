@@ -109,20 +109,22 @@ class TestPathSetup:
     def test_setup_paths_success(self, sample_config):
         """Test successful path setup."""
         with patch('horse_id.os.path.expanduser', side_effect=lambda x: x):
-            manifest_file, features_dir, bucket_name = setup_paths(sample_config)
+            manifest_file, features_dir, horse_herds_file, bucket_name = setup_paths(sample_config)
         
         assert manifest_file == '/tmp/test_data/merged_manifest.csv'
         assert features_dir == '/tmp/test_data/features'
+        assert horse_herds_file == '/tmp/test_data/horse_herds.csv'
         assert bucket_name == 'test-bucket'
     
     def test_setup_paths_with_env_override(self, sample_config):
         """Test path setup with environment variable override."""
         with patch.dict(os.environ, {'HORSE_ID_DATA_ROOT': '/env/override'}):
             with patch('horse_id.os.path.expanduser', side_effect=lambda x: x):
-                manifest_file, features_dir, bucket_name = setup_paths(sample_config)
+                manifest_file, features_dir, horse_herds_file, bucket_name = setup_paths(sample_config)
         
         assert manifest_file == '/env/override/merged_manifest.csv'
         assert features_dir == '/env/override/features'
+        assert horse_herds_file == '/env/override/horse_herds.csv'
         assert bucket_name == 'test-bucket'
     
     def test_setup_paths_home_directory_expansion(self, sample_config):
@@ -130,10 +132,11 @@ class TestPathSetup:
         sample_config['paths']['data_root'] = '~/test_data'
         
         with patch('horse_id.os.path.expanduser', return_value='/home/user/test_data'):
-            manifest_file, features_dir, bucket_name = setup_paths(sample_config)
+            manifest_file, features_dir, horse_herds_file, bucket_name = setup_paths(sample_config)
         
         assert manifest_file == '/home/user/test_data/merged_manifest.csv'
         assert features_dir == '/home/user/test_data/features'
+        assert horse_herds_file == '/home/user/test_data/horse_herds.csv'
         assert bucket_name == 'test-bucket'
     
     def test_setup_paths_missing_paths_section(self):
