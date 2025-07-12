@@ -79,15 +79,22 @@ def load_recurring_names():
         # Find horses with numbered names (e.g., "Cowboy 1", "Sunny 2")
         numbered_horses = []
         for horse_name in all_horse_names:
-            # Match pattern: any characters followed by space and number
-            if re.match(r'^.+\s+\d+$', horse_name):
-                numbered_horses.append(horse_name)
+            # Check if name ends with exactly one number (reject "Storm 1 2" type names)
+            parts = horse_name.split()
+            if len(parts) >= 2 and parts[-1].isdigit():
+                # If only 2 parts, it's valid (name + number)
+                if len(parts) == 2:
+                    numbered_horses.append(horse_name)
+                # If more parts, second-to-last should not be a digit
+                elif not parts[-2].isdigit():
+                    numbered_horses.append(horse_name)
         
         # Extract base names (everything before the last space and number)
         recurring_base_names = set()
         for horse_name in numbered_horses:
-            # Remove the last space and number to get the base name
-            base_name = re.sub(r'\s+\d+$', '', horse_name)
+            # Remove the last part (number) to get the base name
+            parts = horse_name.split()
+            base_name = ' '.join(parts[:-1])
             recurring_base_names.add(base_name)
         
         print(f"Found {len(numbered_horses)} horses with numbered names")

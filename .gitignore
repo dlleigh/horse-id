@@ -10,3 +10,10 @@ sandbox
 *.csv
 __pycache__
 horse-id-data
+
+# Testing files
+.coverage
+*.xml
+test-results/
+.pytest_cache/
+htmlcov/

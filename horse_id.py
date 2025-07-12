@@ -107,6 +107,9 @@ def download_from_s3(s3_client, bucket_name, s3_key, local_path):
         else:
             logger.error(f"    ERROR: Failed to download file from S3. Reason: {e}")
         return False
+    except Exception as e:
+        logger.error(f"    ERROR: Failed to download file from S3. Reason: {e}")
+        return False
 
 def process_image_for_identification(image_url, twilio_account_sid=None, twilio_auth_token=None):
     """
@@ -236,6 +239,11 @@ def _parse_twilio_event(event):
         logger.info("Event does not appear to be from API Gateway. Assuming direct payload.")
         return event
 
+    # Normalize header keys to lowercase for consistent access.
+    # API Gateway v2 payload format lowercases all header keys.
+    headers = {k.lower(): v for k, v in event.get('headers', {}).items()}
+    content_type = headers.get('content-type', '')
+
     if 'body' in event and event['body']:
         body_str = event['body']
         if event.get('isBase64Encoded', False):
@@ -245,11 +253,6 @@ def _parse_twilio_event(event):
             except Exception as e:
                 logger.error(f"Failed to decode base64 body: {e}")
                 return {}
-
-        # Normalize header keys to lowercase for consistent access.
-        # API Gateway v2 payload format lowercases all header keys.
-        headers = {k.lower(): v for k, v in event.get('headers', {}).items()}
-        content_type = headers.get('content-type', '')
 
         try:
             if 'application/x-www-form-urlencoded' in content_type:
@@ -265,7 +268,7 @@ def _parse_twilio_event(event):
             logger.error(f"Error parsing event body: {e}. Falling back to raw event as payload.")
             return {}
 
-    logger.warning(f"Could not parse body with Content-Type: '{headers.get('content-type', '')}'. Returning empty payload.")
+    logger.warning(f"Could not parse body with Content-Type: '{content_type}'. Returning empty payload.")
     return {}
 
 
