@@ -13,10 +13,8 @@ from collections import defaultdict
 import torchvision.transforms as T
 import re
 
-from wildlife_tools.features import DeepFeatures, SuperPointExtractor, AlikedExtractor, DiskExtractor, SiftExtractor
-from wildlife_tools.similarity import MatchLOFTR, CosineSimilarity, MatchLightGlue
-from wildlife_tools.similarity.wildfusion import SimilarityPipeline, WildFusion
-from wildlife_tools.similarity.calibration import IsotonicCalibration
+from wildlife_tools.features import DeepFeatures
+from wildlife_tools.similarity import CosineSimilarity
 from wildlife_tools.data import ImageDataset
 
 # --- Load Configuration ---
@@ -29,10 +27,11 @@ IMAGE_DIR = config['paths']['dataset_dir'].format(data_root=DATA_ROOT)
 # Reads from the detector's output, writes to the final merged file
 INPUT_MANIFEST_FILE = config['detection']['detected_manifest_file'].format(data_root=DATA_ROOT)
 OUTPUT_MANIFEST_FILE = config['paths']['merged_manifest_file'].format(data_root=DATA_ROOT)
-CALIBRATION_DIR = config['paths']['calibration_dir'].format(data_root=DATA_ROOT) # Keep for WildFusion
-MERGE_RESULTS_FILE = config['paths']['merge_results_file'].format(data_root=DATA_ROOT) # New name
+MERGE_RESULTS_FILE = config['paths']['merge_results_file'].format(data_root=DATA_ROOT)
 SIMILARITY_THRESHOLD = config['similarity']['merge_threshold']
 MASTER_HORSE_LOCATION_FILE = config['similarity']['master_horse_location_file'].format(data_root=DATA_ROOT)
+FEATURES_DIR = config['paths']['features_dir'].format(data_root=DATA_ROOT)
+FEATURES_FILE = os.path.join(FEATURES_DIR, 'database_deep_features.pkl')
 
 
 def load_recurring_names():
@@ -183,124 +182,172 @@ def auto_merge_non_recurring_names(output_df, recurring_base_names):
     return output_df
 
 
-def load_wildfusion_system():
-    """Loads the pre-trained and calibrated WildFusion system components."""
-    print("Loading WildFusion system components...")
+def load_global_similarity_system():
+    """Loads the global Wildlife-mega-L-384 model for similarity computation."""
+    print("Loading global Wildlife-mega-L-384 similarity system...")
+    
+    # Create the global model extractor
+    backbone = timm.create_model('hf-hub:BVRA/wildlife-mega-L-384', num_classes=0, pretrained=True)
+    extractor = DeepFeatures(backbone, num_workers=0)
+    
+    # Create the similarity function
+    similarity_function = CosineSimilarity()
+    
+    # Create the transform (matching production system)
+    transform = T.Compose([
+        T.Resize(size=(384, 384)),
+        T.ToTensor(),
+        T.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)),
+    ])
+    
+    return extractor, similarity_function, transform
 
-    calibrated_matchers_dict = {
-        'lightglue_superpoint': SimilarityPipeline(
-            matcher = MatchLightGlue(features='superpoint'),
-            extractor = SuperPointExtractor(),
-            transform = T.Compose([
-                T.Resize([512, 512]),
-                T.ToTensor()
-            ]),
-            calibration = IsotonicCalibration()
-        ),
-
-        # 'lightglue_aliked': SimilarityPipeline(
-        #     matcher = MatchLightGlue(features='aliked'),
-        #     extractor = AlikedExtractor(),
-        #     transform = T.Compose([
-        #         T.Resize([512, 512]),
-        #         T.ToTensor()
-        #     ]),
-        #     calibration = IsotonicCalibration()
-        # ),
-
-        # 'lightglue_disk': SimilarityPipeline(
-        #     matcher = MatchLightGlue(features='disk'),
-        #     extractor = DiskExtractor(),
-        #     transform = T.Compose([
-        #         T.Resize([512, 512]),
-        #         T.ToTensor()
-        #     ]),
-        #     calibration = IsotonicCalibration()
-        # ),
-
-        # 'lightglue_sift': SimilarityPipeline(
-        #     matcher = MatchLightGlue(features='sift'),
-        #     extractor = SiftExtractor(),
-        #     transform = T.Compose([
-        #         T.Resize([512, 512]),
-        #         T.ToTensor()
-        #     ]),
-        #     calibration = IsotonicCalibration()
-        # ),
-
-        'DeepFeatures': SimilarityPipeline(
-            matcher=CosineSimilarity(),
-            extractor=DeepFeatures(
-                model=timm.create_model('hf-hub:BVRA/wildlife-mega-L-384', num_classes=0, pretrained=True)
-            ),
-            transform=T.Compose([
-                T.Resize(size=(384, 384)), T.ToTensor(),
-                T.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)),
-            ])
-        ),
-    }
-
-    # Load pre-computed calibrations
-    for name, pipeline in calibrated_matchers_dict.items():
-        if name == 'DeepFeatures':
-            continue
-        cal_file = os.path.join(CALIBRATION_DIR, f"{name}.pkl")
-        if os.path.exists(cal_file):
-            print(f"  Loading calibration for {name} from: {cal_file}")
-            with open(cal_file, 'rb') as f:
-                pipeline.calibration = pickle.load(f)
-                pipeline.calibration_done = True
-        else:
-            raise FileNotFoundError(f"Calibration file not found for {name}: {cal_file}. Please run training first.")
-
-    priority_matcher = SimilarityPipeline(
-        matcher=CosineSimilarity(),
-        extractor=DeepFeatures(
-            model=timm.create_model('hf-hub:BVRA/wildlife-mega-L-384', num_classes=0, pretrained=True)
-        ),
-        transform=T.Compose([
-            T.Resize(size=(384, 384)), T.ToTensor(),
-            T.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)),
-        ]),
-    )
-
-    # return WildFusion(
-    #     calibrated_pipelines=list(calibrated_matchers_dict.values()),
-    #     priority_pipeline=priority_matcher
-    # )
-    return WildFusion(
-        calibrated_pipelines=calibrated_matchers_dict.values(),
-        #priority_pipeline=priority_matcher
-    )
-
-def check_similarity(wildfusion_system, df_a, df_b):
+def load_preextracted_features(manifest_df):
     """
-    Checks if two groups of images are a match using a more robust
-    similarity check. Returns (is_match, max_similarity_score).
+    Load pre-extracted features and create a filename-to-feature mapping.
+    Returns (features_map, missing_files) where features_map is {filename: feature_index}
+    and missing_files is a set of filenames not found in pre-extracted features.
+    """
+    features_map = {}
+    missing_files = set()
+    database_features = None
+    filenames_order = None
+    
+    if not os.path.exists(FEATURES_FILE):
+        print(f"Warning: Pre-extracted features file not found at {FEATURES_FILE}")
+        print("All features will be extracted on-the-fly.")
+        return {}, set(manifest_df['filename'].unique())
+    
+    try:
+        print(f"Loading pre-extracted features from {FEATURES_FILE}...")
+        with open(FEATURES_FILE, 'rb') as f:
+            data = pickle.load(f)
+        
+        # Handle different possible formats of saved features
+        if isinstance(data, dict) and 'features' in data and 'filenames' in data:
+            # Format: {'features': tensor, 'filenames': list}
+            database_features = data['features']
+            filenames_order = data['filenames']
+        elif isinstance(data, tuple) and len(data) == 2:
+            # Format: (features_tensor, filenames_list)
+            database_features, filenames_order = data
+        elif hasattr(data, 'shape'):
+            # Format: just the features tensor - try to reconstruct filenames from manifest
+            database_features = data
+            print("Warning: Features file contains only tensor data, no filename mapping.")
+            print("Will attempt to match features to manifest order, but this may be unreliable.")
+            # This is a fallback - we'll need to match by manifest order
+            single_horse_files = manifest_df[manifest_df['num_horses_detected'] == 'SINGLE']['filename'].tolist()
+            if len(single_horse_files) == database_features.shape[0]:
+                filenames_order = single_horse_files
+                print(f"Successfully matched {len(filenames_order)} features to manifest files.")
+            else:
+                print(f"Feature count ({database_features.shape[0]}) doesn't match SINGLE horse count ({len(single_horse_files)}).")
+                return {}, set(manifest_df['filename'].unique())
+        else:
+            print(f"Warning: Unrecognized features file format: {type(data)}")
+            return {}, set(manifest_df['filename'].unique())
+        
+        if filenames_order is None:
+            print("Could not determine filename order from features file.")
+            return {}, set(manifest_df['filename'].unique())
+        
+        # Create filename to feature index mapping
+        for idx, filename in enumerate(filenames_order):
+            features_map[filename] = idx
+        
+        # Find files in manifest that don't have pre-extracted features
+        manifest_files = set(manifest_df['filename'].unique())
+        cached_files = set(filenames_order)
+        missing_files = manifest_files - cached_files
+        
+        print(f"Loaded pre-extracted features for {len(cached_files)} files.")
+        if missing_files:
+            print(f"Found {len(missing_files)} files without pre-extracted features - will extract on-the-fly.")
+        
+        return features_map, missing_files, database_features
+        
+    except Exception as e:
+        print(f"Error loading pre-extracted features: {e}")
+        print("Will extract all features on-the-fly.")
+        return {}, set(manifest_df['filename'].unique()), None
+
+def check_similarity(extractor, similarity_function, transform, df_a, df_b, features_map=None, missing_files=None, database_features=None):
+    """
+    Checks if two groups of images are a match using the global Wildlife-mega-L-384 model.
+    Uses pre-extracted features when available, falls back to on-the-fly extraction when needed.
+    Returns (is_match, max_similarity_score).
     """
     overall_max_similarity = np.nan
     if df_a.empty or df_b.empty:
         return False, overall_max_similarity
 
-    dataset_a = ImageDataset(df_a, col_label='canonical_id', root=IMAGE_DIR, col_path='filename')
-    dataset_b = ImageDataset(df_b, col_label='canonical_id', root=IMAGE_DIR, col_path='filename')
     try:
-        similarity_matrix = wildfusion_system(dataset_a, dataset_b)
+        # Get features for group A
+        features_a = get_features_for_group(df_a, extractor, transform, features_map, missing_files, database_features)
+        
+        # Get features for group B
+        features_b = get_features_for_group(df_b, extractor, transform, features_map, missing_files, database_features)
+        
+        if features_a is None or features_b is None:
+            print(f"    Could not extract features for one or both groups.")
+            return False, overall_max_similarity
+        
+        # Compute similarity matrix
+        similarity_matrix = similarity_function(features_a, features_b)
+        
         if similarity_matrix is None or similarity_matrix.size == 0:
             return False, overall_max_similarity
 
-        # --- NEW LOGIC: Match if any single pair is above threshold ---
-        if similarity_matrix.size > 0: # Ensure matrix is not empty before calling np.max
+        # Match if any single pair is above threshold
+        if similarity_matrix.size > 0:
             overall_max_similarity = np.max(similarity_matrix)
             print(f"    Max similarity found across all pairs: {overall_max_similarity:.4f} (threshold: {SIMILARITY_THRESHOLD})")
             return overall_max_similarity >= SIMILARITY_THRESHOLD, overall_max_similarity
         else:
-            # overall_max_similarity remains np.nan, is_match remains False
             print(f"    Similarity matrix is empty, no match.")
             return False, overall_max_similarity
+            
     except Exception as e:
         print(f"    Error during similarity check: {e}")
         return False, overall_max_similarity
+
+def get_features_for_group(df_group, extractor, transform, features_map=None, missing_files=None, database_features=None):
+    """
+    Get features for a group of images, using pre-extracted features when available
+    and falling back to on-the-fly extraction when needed.
+    """
+    if features_map is None or missing_files is None or database_features is None:
+        # No pre-extracted features available, extract on-the-fly
+        return extract_features_on_the_fly(df_group, extractor, transform)
+    
+    filenames = df_group['filename'].tolist()
+    
+    # Check if all files have pre-extracted features
+    all_cached = all(filename in features_map for filename in filenames)
+    
+    if all_cached:
+        # Use pre-extracted features
+        print(f"    Using pre-extracted features for {len(filenames)} images")
+        feature_indices = [features_map[filename] for filename in filenames]
+        return database_features[feature_indices]
+    else:
+        # Some files missing from cache, extract on-the-fly
+        missing_in_group = [f for f in filenames if f in missing_files]
+        print(f"    Extracting features on-the-fly for {len(missing_in_group)} missing images: {missing_in_group}")
+        return extract_features_on_the_fly(df_group, extractor, transform)
+
+def extract_features_on_the_fly(df_group, extractor, transform):
+    """
+    Extract features on-the-fly for a group of images.
+    """
+    try:
+        dataset = ImageDataset(df_group, col_label='canonical_id', root=IMAGE_DIR, col_path='filename', transform=transform)
+        features = extractor(dataset)
+        return features
+    except Exception as e:
+        print(f"    Error extracting features on-the-fly: {e}")
+        return None
 
 def find_connected_components(graph):
     """Finds all connected components in a graph using BFS."""
@@ -328,7 +375,13 @@ def main():
     # Load recurring names from master horse location file
     recurring_base_names = load_recurring_names()
     
-    wildfusion = load_wildfusion_system()
+    # Load global similarity system (Wildlife-mega-L-384 model)
+    extractor, similarity_function, transform = load_global_similarity_system()
+    
+    # Load pre-extracted features if available
+    print(f"\n=== Loading pre-extracted features ===")
+    # We need to read the detected manifest first to get the filename list
+    features_map, missing_files, database_features = load_preextracted_features(detected_df)
 
     # INPUT_MANIFEST_FILE is config['detection']['detected_manifest_file']
     # OUTPUT_MANIFEST_FILE is config['paths']['merged_manifest_file'] (this script's output)
@@ -471,7 +524,7 @@ def main():
                 print(f"  Using cached result for CIDs ({cid_a_int}, {cid_b_int}) for messages ('{msg_id_a}', '{msg_id_b}'): {'Match' if is_match_for_graph else 'No Match'}, Score: {score_str}")
             else:
                 print(f"  Comparing message '{msg_id_a}' (CID: {cid_a_int}) vs message '{msg_id_b}' (CID: {cid_b_int})...")
-                is_match_computed, score_computed_float = check_similarity(wildfusion, df_a, df_b)
+                is_match_computed, score_computed_float = check_similarity(extractor, similarity_function, transform, df_a, df_b, features_map, missing_files, database_features)
                 is_match_for_graph = is_match_computed
                 score_str = f"{score_computed_float:.4f}" if not np.isnan(score_computed_float) else 'N/A'
 
