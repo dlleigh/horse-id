@@ -1,15 +1,11 @@
-# Horse ID Unit Test Suite
+# Horse ID Testing
+
+- [Unit Tests](#unit-tests)
+- [End-to-end testing](#end-to-end-testing)
+
+## Unit Tests
 
 This directory contains a comprehensive unit test suite for the Horse ID project covering all critical functionality.
-
-## 🎉 Current Status
-
-- ✅ **All tests passing** (100% success rate)
-- ✅ **Zero failing tests**
-- ✅ **Good code coverage** (core modules)
-- ✅ **Production-ready** test infrastructure
-
-## 🚀 Quick Start
 
 ### Primary Test Scripts
 
@@ -46,9 +42,9 @@ python test_simple.py
 | `python test_simple.py` | Zero-dependency validation tests |
 | Coverage reports | Generated in `test-results/coverage-html/` |
 
-## 📁 Test Structure
+### 📁 Unit Test Structure
 
-### Test Files Overview
+#### Test Files Overview
 
 | Test File | Focus Area | Coverage |
 |-----------|------------|----------|
@@ -60,7 +56,7 @@ python test_simple.py
 | `test_email_ingestion.py` | Email parsing and processing | Moderate |
 | `test_identity_merging.py` | Horse identity merging | Needs improvement |
 
-### Directory Structure
+#### Directory Structure
 
 ```
 tests/
@@ -74,7 +70,7 @@ tests/
 └── test_image_processing.py # Image and data processing tests
 ```
 
-### Test Categories
+#### Test Categories
 
 **High Priority (Critical Business Logic)**
 - Horse detection and classification algorithms
@@ -87,9 +83,7 @@ tests/
 - Email parsing and horse name extraction
 - Horse identity merging logic
 
-## 📊 Test Coverage
-
-### How to View Test Coverage
+### 📊 Unit Test Coverage
 
 #### 1. Quick Coverage Report (Terminal)
 ```bash
@@ -129,7 +123,7 @@ pytest --cov=. --cov-report=html --cov-report=term-missing
 pytest --cov=horse_id --cov=horse_detection_lib --cov=webhook_responder --cov-report=html
 ```
 
-### Current Coverage Summary
+#### Current Coverage Summary
 
 **Overall Coverage:** Good (core modules)
 
@@ -141,7 +135,7 @@ pytest --cov=horse_id --cov=horse_detection_lib --cov=webhook_responder --cov-re
 | `ingest_from_email.py` | ⚠️ Moderate coverage |
 | `merge_horse_identities.py` | ⚠️ Needs more tests |
 
-### Comprehensive Coverage Areas
+#### Comprehensive Coverage Areas
 
 **Detection Algorithms (`horse_detection_lib.py`) - Well Tested**
 - ✅ Bounding box overlap calculations
@@ -192,7 +186,7 @@ pytest --cov=horse_id --cov=horse_detection_lib --cov=webhook_responder --cov-re
    - `review_merges_app.py`
    - `upload_to_s3.py`
 
-### Coverage Configuration
+#### Coverage Configuration
 
 The project uses `.coveragerc` or `pyproject.toml` for coverage settings:
 
@@ -215,7 +209,7 @@ directory = "test-results/coverage-html"
 - **XML Reports**: `test-results/coverage.xml`
 - **JUnit XML**: `test-results/junit.xml`
 
-### Tips for Improving Coverage
+#### Tips for Improving Coverage
 
 1. **Focus on Critical Paths:** Prioritize testing error handling and edge cases
 2. **Integration Tests:** Add tests for end-to-end workflows
@@ -223,16 +217,16 @@ directory = "test-results/coverage-html"
 4. **Parametrized Tests:** Test multiple scenarios with single test functions
 5. **Property-Based Testing:** Consider using hypothesis for edge case discovery
 
-## 🔧 Running Specific Tests
+### 🔧 Running Specific Tests
 
-### Individual Test Files
+#### Individual Test Files
 ```bash
 pytest tests/test_webhook_responder.py -v
 pytest tests/test_detection_algorithms.py -v
 pytest tests/test_horse_processor.py -v
 ```
 
-### Specific Test Methods
+#### Specific Test Methods
 ```bash
 # Run a specific test method
 pytest tests/test_detection_algorithms.py::TestBboxOverlap::test_no_overlap -v
@@ -241,7 +235,7 @@ pytest tests/test_detection_algorithms.py::TestBboxOverlap::test_no_overlap -v
 pytest tests/ -k "test_config" -v
 ```
 
-### Test Categories by Priority
+#### Test Categories by Priority
 ```bash
 # High priority tests (critical functionality)
 pytest tests/test_webhook_responder.py tests/test_detection_algorithms.py tests/test_horse_processor.py tests/test_image_processing.py -v
@@ -250,7 +244,7 @@ pytest tests/test_webhook_responder.py tests/test_detection_algorithms.py tests/
 pytest tests/test_config_loading.py tests/test_email_ingestion.py tests/test_identity_merging.py -v
 ```
 
-## 🔄 Mocking Strategy
+### 🔄 Mocking Strategy
 
 The tests use comprehensive mocking for:
 - **External APIs**: Twilio, Gmail, AWS S3
@@ -258,7 +252,7 @@ The tests use comprehensive mocking for:
 - **File System**: Configuration files, image files, Excel files
 - **Network Requests**: Image downloads, API calls
 
-### ML Dependency Mocking
+#### ML Dependency Mocking
 Located in `tests/conftest.py`:
 ```python
 # Automatic mocking of heavy ML dependencies
@@ -269,7 +263,7 @@ ML_MODULES = [
 ]
 ```
 
-## 🏗️ Test Fixtures
+### 🏗️ Test Fixtures
 
 Located in `tests/conftest.py`:
 - ✅ Sample configuration data
@@ -278,7 +272,7 @@ Located in `tests/conftest.py`:
 - ✅ Mock AWS and Twilio clients
 - ✅ ML library mocking infrastructure
 
-## 🔧 Test Configuration Files
+### 🔧 Test Configuration Files
 
 | File | Purpose |
 |------|---------|
@@ -287,9 +281,9 @@ Located in `tests/conftest.py`:
 | `test-requirements.txt` | Test dependencies |
 | `tests/conftest.py` | Test fixtures and mocking |
 
-## 🚀 CI/CD Integration
+### 🚀 CI/CD Integration
 
-### For Continuous Integration
+#### For Continuous Integration
 ```bash
 # Install test dependencies
 pip install -r test-requirements.txt
@@ -305,12 +299,12 @@ pytest tests/ \
     --cov-report=html:test-results/coverage-html
 ```
 
-### Output Files for CI/CD
+#### Output Files for CI/CD
 - **JUnit XML**: `test-results/junit.xml`
 - **Coverage XML**: `test-results/coverage.xml`
 - **Coverage HTML**: `test-results/coverage-html/`
 
-## 📋 Dependencies
+### 📋 Dependencies
 
 Core testing dependencies (from `test-requirements.txt`):
 - `pytest` - Test framework
@@ -321,7 +315,7 @@ Core testing dependencies (from `test-requirements.txt`):
 - `pyyaml` - YAML parsing
 - `pandas` - Data processing
 
-## 🛠️ Development Guidelines
+### 🛠️ Development Guidelines
 
 When adding new tests:
 1. ✅ Follow existing naming convention (`test_*.py`)
@@ -331,14 +325,14 @@ When adding new tests:
 5. ✅ Include edge cases and boundary conditions
 6. ✅ Update documentation if adding new categories
 
-## 🔄 Development Workflow
+### 🔄 Development Workflow
 
 1. **Make changes** to code
 2. **Quick validation**: `./run_tests_quick.sh`
 3. **Before commit**: `./run_tests.sh`
 4. **Core verification**: `./run_tests_optimal.sh`
 
-## 🎉 Success Metrics
+### 🎉 Success Metrics
 
 - ✅ **All tests passing** (100% success rate)
 - ✅ **Zero failing tests**
@@ -351,10 +345,45 @@ When adding new tests:
 - **CI/CD Ready**: Complete reporting and integration support
 - **Maintainability**: Clean, well-documented test infrastructure
 
-## 📚 Additional Documentation
+### 📚 Additional Documentation
 
 - **Test Scenarios Visualization**: `test_scenarios_visualization.md`
 - **Final Status**: `TESTS_FINAL_STATUS.md`
 - **Project Overview**: `README.md`
+
+## 🧪 End-to-End Testing
+
+### Lambda Function Test Utility (`test_lambda_app.py`)
+
+In addition to the unit test suite, the project includes an interactive end-to-end testing application.
+
+*   **Purpose**: This interactive web application provides a user-friendly way to test the containers locally. 
+*   **Framework**: Built with Streamlit.
+*   **Workflow**: The test app simulates the full asynchronous flow.
+    1.  **Provide Image Path**: The user provides a local path to a horse image.
+    2.  **Image Hosting**: The application starts a temporary, local web server to host the image.
+    3.  **Container Management**: When the "Identify Horse" button is clicked, the app starts two containers: one for the `responder` and one for the `processor`.
+    4.  **Simulated Invocation**:
+        *   It first sends a request to the `responder` container and displays its immediate TwiML response.
+        *   It then sends the same request to the `processor` container to kick off the identification.
+    5.  **Log Streaming**: It streams logs from both containers into a unified view, prefixed with `[RESPONDER]` and `[PROCESSOR]`, allowing you to observe the entire flow.
+    6.  **Cleanup**: The app automatically stops both containers and the image server.
+
+### Running End-to-End Tests
+
+```bash
+# Run the interactive test application
+streamlit run test_lambda_app.py
+```
+
+This will open a web page in your browser, allow you to select a horse photo, build and run the container images, and send a simulated webhook to the responder image.
+
+### When to Use End-to-End Testing
+
+- **Integration Validation**: Test the complete system flow including Docker containers
+- **Lambda Function Testing**: Validate the actual Lambda handlers in a containerized environment  
+- **Webhook Processing**: Test the full Twilio webhook to SMS response cycle
+- **Performance Testing**: Verify system behavior under realistic conditions
+- **Deployment Validation**: Confirm system works before deploying to production
 
 The test suite provides comprehensive validation of all Horse ID functionality and is ready for production use! 🐎✨

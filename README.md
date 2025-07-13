@@ -15,8 +15,9 @@ The workflow is divided into several stages, each handled by a specific Python s
 5.  **Gallery Generation (`generate_gallery.py`)**: Creates interactive HTML galleries from the various manifest CSV files (base, detected, and merged), allowing for easy visual inspection and filtering of the image data at different stages of processing.
 6. **Calibration and Testing (`horse_id.ipynb`)**: Creates calibration files if none exist, evaluates model performance and creates the prediction results file for side-by-side comparison of test images and model predictions.
 7. **Feature Extraction (`extract_features.py`)**: Extracts features using [Wildlife-mega-L-384](https://huggingface.co/BVRA/MegaDescriptor-L-384).
-8. **Upload data (`upload_to_s3.py`)**: Uploads manifest and extracted features to s3.
-9. **AWS Lambda Function: (`horse_id.py`)**: Performs similarity comparison between the query image using pre-extracted features.
+8. **Horse Herds Parsing (`parse_horse_herds.py`)**: Processes the master horse location Excel file to extract horse names and their associated herds, creating a CSV mapping for herd information display.
+9. **Upload data (`upload_to_s3.py`)**: Uploads manifest and extracted features to s3.
+10. **AWS Lambda Function: (`horse_id.py`)**: Performs similarity comparison between the query image using pre-extracted features.
 
 
 ### Key Technologies and Frameworks
@@ -31,38 +32,7 @@ The workflow is divided into several stages, each handled by a specific Python s
 
 ## 🧪 Testing
 
-This project includes a comprehensive unit test suite with **146 tests covering all critical functionality**.
-
-### Quick Start Testing
-```bash
-# Complete test suite with coverage (recommended)
-./run_tests.sh
-
-# Fast development feedback
-./run_tests_quick.sh
-
-# Core functionality validation
-./run_tests_optimal.sh
-```
-
-### Test Results
-- **Status**: ✅ All 146 tests passing (100% success rate)
-- **Coverage**: 62% overall, 100% for critical webhook processing
-- **Coverage Report**: `test-results/coverage-html/index.html`
-
-### Test Documentation
-- **Testing Guide**: `README_TESTING.md`
-- **Coverage Analysis**: `view_coverage.md`
-- **Final Status**: `TESTS_FINAL_STATUS.md`
-
-The test suite validates:
-- ✅ Twilio webhook processing and validation
-- ✅ Horse detection algorithms and bounding box calculations
-- ✅ Image processing and data filtering logic
-- ✅ Configuration loading and validation
-- ✅ Email parsing and horse name extraction
-- ✅ S3 operations and error handling
-*   **Google Gmail API**: Used by `ingest_from_email.py` to fetch and process emails.
+This project includes a comprehensive unit test suite and end-to-end tests.  See: [README_TESTING](README_TESTING.md). 
 
 ## Core Scripts and Functionality
 
@@ -166,11 +136,26 @@ The test suite validates:
 *   **Purpose**: To speed up similarity processing at runtime, pre-extract features from all database images.
 *   **Workflow**: Extracts features using [Wildlife-mega-L-384](https://huggingface.co/BVRA/MegaDescriptor-L-384).
 
-### 8. Upload Data (`upload_to_s3.py`)
+### 8. Horse Herds Parsing (`parse_horse_herds.py`)
+*   **Purpose**: Processes the master horse location Excel file to create a structured CSV mapping of horse names to their respective herds. This enables the identification system to provide herd information alongside horse identities.
+*   **Configuration Integration**: Uses paths from `config.yml` for both input (`master_horse_location_file`) and output (`horse_herds_file`) files, maintaining consistency with the rest of the system.
+*   **Excel Processing**:
+    *   Reads the master horse location Excel file with a specific structure where row 3 contains herd names and counts.
+    *   Parses herd information starting from row 5, extracting horse names for each herd column.
+    *   Handles horses appearing in multiple herds by creating separate entries for each horse-herd combination.
+*   **Data Analysis and Validation**:
+    *   Identifies horses with shared names across different herds.
+    *   Detects horses with numbered naming patterns (e.g., "George 2", "Sunny 1").
+    *   Provides detailed statistics on herd distribution and horse counts.
+    *   Removes duplicates while preserving all valid horse-herd relationships.
+*   **Output**: Creates a CSV file (`horse_herds.csv`) with columns `horse_name` and `herd`, which is later used by the identification system to display herd information in results (e.g., "Thunder - West Herd" or "Ranger - Herds Alpha Herd, Mountain Herd").
+*   **Usage**: Can be run with configuration file paths or with custom input/output file arguments for flexibility.
+
+### 9. Upload Data (`upload_to_s3.py`)
 *   **Purpose**: Provide data required by `horse_id.py`
 *   **Workflow**: Uploads to s3 the pre-extracted features and the merged manifest to/from the locations defined in `config.yml`.
 
-### 9. AWS Lambda Function: (`horse_id.py`)
+### 10. AWS Lambda Function: (`horse_id.py`)
 *   **Purpose**: This script serves as the AWS Lambda function responsible for real-time horse identification from an image URL. It is designed to receive Twilio webhook requests, fetch image, perform similarity comparisons, and return results.
 *   **Asynchronous Architecture**: The system uses two Lambda functions created from two different docker images. This design ensures a quick response to Twilio webhooks while allowing the computationally intensive image processing to run in the background.
     1.  **`webhook-responder` (Handler: `webhook_responder.webhook_handler`)**:
@@ -200,18 +185,6 @@ The test suite validates:
             - `Dockerfile.horse_id` 
             - `horse-id-requirements.txt`
 
-### 10. Lambda Function Test Utility (`test_lambda_app.py`)
-*   **Purpose**: This interactive web application provides a user-friendly way to test the containers locally. 
-*   **Framework**: Built with Streamlit.
-*   **Workflow**: The test app simulates the full asynchronous flow.
-    1.  **Provide Image Path**: The user provides a local path to a horse image.
-    2.  **Image Hosting**: The application starts a temporary, local web server to host the image.
-    3.  **Container Management**: When the "Identify Horse" button is clicked, the app starts two containers: one for the `responder` and one for the `processor`.
-    4.  **Simulated Invocation**:
-        *   It first sends a request to the `responder` container and displays its immediate TwiML response.
-        *   It then sends the same request to the `processor` container to kick off the identification.
-    5.  **Log Streaming**: It streams logs from both containers into a unified view, prefixed with `[RESPONDER]` and `[PROCESSOR]`, allowing you to observe the entire flow.
-    6.  **Cleanup**: The app automatically stops both containers and the image server.
 
 ## User Interaction Flow
 
@@ -290,6 +263,16 @@ The system uses several CSV files to store and pass data between stages:
         *   `max_similarity`: The similarity score computed by WildFusion.
         *   `is_match`: Boolean (True/False) indicating if the system predicted them as a match based on the threshold.
 
+5.  **`horse_herds_file` (e.g., `data/horse_herds.csv`)**
+    *   **Created by**: `parse_horse_herds.py`
+    *   **Input**: `master_horse_location_file` (Excel file specified in config.yml)
+    *   **Purpose**: Maps horse names to their respective herds to enable herd information display in identification results.
+    *   **Key Columns**:
+        *   `horse_name`: Name of the horse.
+        *   `herd`: Name of the herd the horse belongs to.
+    *   **Usage**: Used by `horse_id.py` to format identification results with herd information (e.g., "Thunder - West Herd" or "Ranger - Herds Alpha Herd, Mountain Herd").
+    *   **Multi-Herd Support**: Horses appearing in multiple herds have separate entries for each herd, allowing the system to display all associated herds.
+
 **Data Flow Summary:**
 
 ```mermaid
@@ -310,6 +293,7 @@ graph TD
         manifest_merged --> reviewer["review_merges_app.py"]
         merge_log --> reviewer
         reviewer -- "writes updates to" --> manifest_merged
+        master_horse_location_file -- "leverages to simplify merging"--> merger
     end
 
     subgraph "Gallery Generation"
@@ -325,6 +309,25 @@ graph TD
         calibration_files -- "reads" --> merger
         calibration --> prediction_results["prediction_results.html"]
     end
+
+    subgraph "Feature extraction"
+        manifest_merged -- "reads" --> extractor["extract_features.py"]
+        extractor -- creates --> features(pkl files)
+    end
+
+    subgraph "Parse herds"
+        master_horse_location_file --> parser["parse_horse_herds.py"]
+        parser --> horse_herds("horse_herds.csv")
+    end
+
+    subgraph "S3 Upload"
+        manifest_merged --> uploader["upload_to_s3.py"]
+        features --> uploader
+        horse_herds --> uploader
+        uploader --> S3
+    end
+
+    S3@{shape: disk}
 
 ```
 
@@ -378,25 +381,24 @@ graph TD
 
     Run the `horse_id.ipynb` notebook
 
-7. **Extract Features**:
+7. **Parse Horse Herds**:
+    ```bash
+    python parse_horse_herds.py
+    ```
+    This creates the horse-to-herd mapping CSV file used for displaying herd information in identification results.
+
+8. **Extract Features**:
     ```bash
     python extract_features.py
     ```
 
-8. **Upload data to S3**:
+9. **Upload data to S3**:
 
     Authenticate to AWS, then
     ```bash
     python upload_to_s3.py
     ```
 
-10. **Build and test locally**:
-
-    Run the interactive test application:
-    ```bash
-    streamlit run test_lambda_app.py
-    ```
-    This will open a web page in your browser, allow you to select an horse photo, build and run the container images, and send a simulated webhook to the responder image.
 
 ## Deployment
 
