@@ -482,7 +482,7 @@ class TestFormatHorseWithHerd:
         }
         
         result = format_horse_with_herd('Unknown Horse', horse_herds_map)
-        assert result == 'Unknown Horse'
+        assert result == 'Unknown Horse - Herd unknown'
     
     def test_format_horse_empty_herds_list(self):
         """Test formatting horse name with empty herds list."""
@@ -491,14 +491,14 @@ class TestFormatHorseWithHerd:
         }
         
         result = format_horse_with_herd('Mystery', horse_herds_map)
-        assert result == 'Mystery'
+        assert result == 'Mystery - Herd unknown'
     
     def test_format_horse_empty_map(self):
         """Test formatting horse name with empty herds map."""
         horse_herds_map = {}
         
         result = format_horse_with_herd('Solo Horse', horse_herds_map)
-        assert result == 'Solo Horse'
+        assert result == 'Solo Horse - Herd unknown'
     
     def test_format_horse_special_characters(self):
         """Test formatting horse names with special characters."""

@@ -146,7 +146,7 @@ def format_horse_with_herd(horse_name, horse_herds_map):
     Returns string like "George - Herd A" or "George - Herds A, B"
     """
     if horse_name not in horse_herds_map:
-        return horse_name  # No herd info available
+        return f"{horse_name} - Herd unknown"  # No herd info available
     
     herds = horse_herds_map[horse_name]
     if len(herds) == 1:
@@ -154,7 +154,7 @@ def format_horse_with_herd(horse_name, horse_herds_map):
     elif len(herds) > 1:
         return f"{horse_name} - Herds {', '.join(sorted(herds))}"
     else:
-        return horse_name
+        return f"{horse_name} - Herd unknown"
 
 def process_image_for_identification(image_url, twilio_account_sid=None, twilio_auth_token=None):
     """
