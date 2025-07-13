@@ -233,7 +233,11 @@ def process_image_for_identification(image_url, twilio_account_sid=None, twilio_
             'horse_name': 'query_horse', # Dummy name
             'date': pd.Timestamp.now() # Dummy date
         }])
-        transform = T.Compose([T.Resize([384, 384]), T.ToTensor()])
+        transform = T.Compose([
+            T.Resize([384, 384]), 
+            T.ToTensor(),
+            T.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225))
+        ])
         dataset_query_single = ImageDataset(query_df, os.path.dirname(temp_image_path), transform=transform)
 
         logger.info("Extracting features for query image...")

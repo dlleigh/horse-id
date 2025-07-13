@@ -72,7 +72,11 @@ def extract_and_save_features(image_dir, manifest_file, features_dir):
     print("Initializing Horse dataset for feature extraction...")
     horses_dataset_obj = Horses(image_dir, manifest_file_path=manifest_file)
     horses_df_all = horses_dataset_obj.create_catalogue()
-    transform = T.Compose([T.Resize([384, 384]), T.ToTensor()])
+    transform = T.Compose([
+        T.Resize([384, 384]), 
+        T.ToTensor(),
+        T.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225))
+    ])
     image_dataset = ImageDataset(horses_df_all, image_dir, transform=transform)
 
     print("Extracting features for all database images...")
