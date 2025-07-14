@@ -10,12 +10,12 @@ The workflow is divided into several stages, each handled by a specific Python s
 
 1.  **Email Ingestion (`ingest_from_email.py`)**: Fetches emails from a Gmail account, extracts horse names from subjects, saves image attachments, and creates an initial manifest of photos.
 2.  **Multi-Horse Detection (`multi_horse_detector.py`)**: Analyzes each downloaded image to detect the number of horses present (NONE, SINGLE, MULTIPLE) using a YOLOv5 model. It updates the manifest with this detection information.
-3.  **Identity Merging (`merge_horse_identities.py`)**: Compares images of horses (identified as 'SINGLE' detection) with the same extracted horse name but from different emails. It uses the WildFusion similarity system to determine if they are the same horse and merges their identities by assigning a common `canonical_id`.
+7. **Feature Extraction (`extract_features.py`)**: Extracts features using [Wildlife-mega-L-384](https://huggingface.co/BVRA/MegaDescriptor-L-384).
+8. **Horse Herds Parsing (`parse_horse_herds.py`)**: Processes the master horse location Excel file to extract horse names and their associated herds, creating a CSV mapping for herd information display.
+3.  **Identity Merging (`merge_horse_identities.py`)**: Compares images of horses (identified as 'SINGLE' detection) with the same extracted horse name but from different emails. It uses the pre-extracted features and the Wildlife-mega-L-384 model to determine if they are the same horse and merges their identities by assigning a common `canonical_id`.
 4.  **Merge Review (`review_merges_app.py`)**: A web application that allows a user to review the automated merge decisions from `merge_horse_identities.py`, manually merge or un-merge identities, and correct any errors.
 5.  **Gallery Generation (`generate_gallery.py`)**: Creates interactive HTML galleries from the various manifest CSV files (base, detected, and merged), allowing for easy visual inspection and filtering of the image data at different stages of processing.
 6. **Calibration and Testing (`horse_id.ipynb`)**: Creates calibration files if none exist, evaluates model performance and creates the prediction results file for side-by-side comparison of test images and model predictions.
-7. **Feature Extraction (`extract_features.py`)**: Extracts features using [Wildlife-mega-L-384](https://huggingface.co/BVRA/MegaDescriptor-L-384).
-8. **Horse Herds Parsing (`parse_horse_herds.py`)**: Processes the master horse location Excel file to extract horse names and their associated herds, creating a CSV mapping for herd information display.
 9. **Upload data (`upload_to_s3.py`)**: Uploads manifest and extracted features to s3.
 10. **AWS Lambda Function: (`horse_id.py`)**: Performs similarity comparison between the query image using pre-extracted features.
 
@@ -24,10 +24,8 @@ The workflow is divided into several stages, each handled by a specific Python s
 
 *   **WildlifeTools Framework**: This system heavily relies on the [WildLife Tools](https://wildlifedatasets.github.io/wildlife-tools/) and [WildLife Datasets](https://wildlifedatasets.github.io/wildlife-datasets/) tools designed for individual animal identification. Key components from WildlifeTools used include:
     *   `ImageDataset` for loading and managing image data.
-    *   Feature extractors like `DeepFeatures` (utilizing [Wildlife-mega-L-384](https://huggingface.co/BVRA/MegaDescriptor-L-384), and `SuperPointExtractor`.
-    *   Similarity matching framework
-    *   The `WildFusion` pipeline for calibrating and combining multiple similarity scores.
-*   **YOLOv5**: Used by `multi_horse_detector.py` for multi-object detection, specifically to identify images that contain multiple horses.
+    *   [Wildlife-mega-L-384](https://huggingface.co/BVRA/MegaDescriptor-L-384)
+*   **YOLO11**: Used by `multi_horse_detector.py` for multi-object detection, specifically to identify images that contain multiple horses.
 *   **Streamlit**: (https://streamlit.io/) Framework used by `review_merges_app.py` to create an interactive web application for merge review.
 
 ## 🧪 Testing
@@ -65,13 +63,20 @@ This project includes a comprehensive unit test suite and end-to-end tests.  See
 ### 3. Identity Merging (`merge_horse_identities.py`)
 
 *   **Purpose**: There are multiple emails available for each horse, each with images taken at different times. There are also multiple horses with the same name. The purpose of `merge_horse_identities.py` is to determine whether horses with the same name but different canonical_id are actually the same horse.
-*   **Similarity System**: Leverages the **WildlifeTools framework** (specifically WildFusion) to perform image similarity comparisons. It employs a combination of deep learning features (e.g., from `BVRA/wildlife-mega-L-384`) and local feature matchers (e.g., SuperPoint with LightGlue). Calibrated models are expected to be present in the `calibration_dir`.
+*   **Similarity System**: Uses the **Wildlife-mega-L-384** global model for similarity computation with optimized feature extraction. The system leverages pre-extracted features from `extract_features.py` when available, falling back to on-the-fly extraction only when necessary for maximum performance.
+*   **Horse Name Intelligence**: Leverages `parse_horse_herds.py` output to identify horses with recurring names (e.g., "Cowboy 1", "Cowboy 2") that require detailed similarity analysis versus non-recurring names that can be auto-merged.
 *   **Candidate Selection**:
     *   Filters the manifest for images marked as `SINGLE` horse detections.
     *   Groups these images by the `horse_name` extracted from email subjects.
+    *   Automatically merges non-recurring horse names without similarity analysis.
+    *   Performs detailed similarity analysis only for recurring horse names.
+*   **Performance Optimization**:
+    *   **Pre-extracted Features**: Uses cached features from `database_deep_features.pkl` when available for ~90% speed improvement.
+    *   **Hybrid Extraction**: Falls back to on-the-fly feature extraction only for images not in the cache.
+    *   **Smart Filtering**: Leverages horse herds data to minimize unnecessary similarity computations.
 *   **Pairwise Comparison**:
-    *   Within each `horse_name` group, it compares sets of images belonging to different `message_id`s.
-    *   The `check_similarity` function uses WildFusion to compute a similarity score between image sets from two different messages. A match is determined if the score exceeds `SIMILARITY_THRESHOLD` from `config.yml`.
+    *   Within each recurring `horse_name` group, compares sets of images belonging to different `message_id`s.
+    *   The `check_similarity` function uses the Wildlife-mega-L-384 model with CosineSimilarity to compute similarity scores between image sets from different messages. A match is determined if the score exceeds `SIMILARITY_THRESHOLD` from `config.yml`.
 *   **Graph-Based Merging**:
     *   Builds a graph where nodes are `canonical_id`s (initially, one per email).
     *   An edge is added between two `canonical_id`s if their respective image sets (from different messages) are deemed similar.
@@ -277,23 +282,47 @@ The system uses several CSV files to store and pass data between stages:
 
 ```mermaid
 graph TD
+
+    subgraph "shared data files"
+        manifest_base("manifest_file")
+        manifest_detected("detected_manifest_file")
+        manifest_merged("merged_manifest_file")
+        horse_herds("horse_herds.csv")
+        features("features pkl files")
+        images("image files")
+    end
+
     subgraph "Email Processing"
-        email_parser["ingest_from_email.py"] --> manifest_base("manifest_file")
+        email_parser["ingest_from_email.py"] --> manifest_base
+        email_parser --> images
+    end
+
+    subgraph "Parse herds"
+        master_horse_location_file --> parser["parse_horse_herds.py"]
+        parser --> horse_herds
     end
 
     subgraph "Multi-Horse Detection"
         manifest_base --> detector["multi_horse_detector.py"]
-        detector --> manifest_detected("detected_manifest_file")
+        images --> detector
+        detector --> manifest_detected
+    end
+
+    subgraph "Feature extraction"
+        manifest_merged  --> extractor["extract_features.py"]
+        images --> extractor
+        extractor -- creates --> features
     end
 
     subgraph "Identity Merging & Review"
         manifest_detected --> merger["merge_horse_identities.py"]
-        merger --> manifest_merged("merged_manifest_file")
+        images --> merger
+        merger --> manifest_merged
         merger --> merge_log("merge_results_file")
         manifest_merged --> reviewer["review_merges_app.py"]
         merge_log --> reviewer
-        reviewer -- "writes updates to" --> manifest_merged
-        master_horse_location_file -- "leverages to simplify merging"--> merger
+        reviewer  --> manifest_merged
+        horse_herds -- "leverages to simplify merging"--> merger
     end
 
     subgraph "Gallery Generation"
@@ -301,23 +330,6 @@ graph TD
         manifest_detected --> gallery_gen
         manifest_merged --> gallery_gen
         gallery_gen --> html_galleries([HTML Gallery Files])
-    end
-
-    subgraph "Calibration and Testing"
-        manifest_merged --> calibration["horse_id.ipynb"]
-        calibration -- "creates if not found" --> calibration_files(calibration pkl files)
-        calibration_files -- "reads" --> merger
-        calibration --> prediction_results["prediction_results.html"]
-    end
-
-    subgraph "Feature extraction"
-        manifest_merged -- "reads" --> extractor["extract_features.py"]
-        extractor -- creates --> features(pkl files)
-    end
-
-    subgraph "Parse herds"
-        master_horse_location_file --> parser["parse_horse_herds.py"]
-        parser --> horse_herds("horse_herds.csv")
     end
 
     subgraph "S3 Upload"
