@@ -56,6 +56,13 @@ def load_recurring_names():
         # Find horses with numbered names (e.g., "Cowboy 1", "Sunny 2")
         numbered_horses = []
         for horse_name in all_horse_names:
+            # Skip NaN values
+            if pd.isna(horse_name):
+                continue
+            
+            # Ensure it's a string
+            horse_name = str(horse_name)
+            
             # Check if name ends with exactly one number (reject "Storm 1 2" type names)
             parts = horse_name.split()
             if len(parts) >= 2 and parts[-1].isdigit():
@@ -118,8 +125,8 @@ def auto_merge_non_recurring_names(output_df, recurring_base_names):
     # Filter for only single horses
     df_single = output_df[output_df['num_horses_detected'] == 'SINGLE'].copy()
     
-    # Group by horse name
-    grouped_by_name = df_single.groupby('horse_name')
+    # Group by normalized horse name  
+    grouped_by_name = df_single.groupby('normalized_horse_name')
     
     merge_count = 0
     for name, group in grouped_by_name:
@@ -142,9 +149,9 @@ def auto_merge_non_recurring_names(output_df, recurring_base_names):
             final_id = min(canonical_ids)
             ids_to_merge = [cid for cid in canonical_ids if cid != final_id]
             
-            # Update all rows with this horse name to use the final canonical ID
+            # Update all rows with this normalized horse name to use the final canonical ID
             merge_timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            rows_to_update_mask = (output_df['horse_name'] == name) & (output_df['canonical_id'].isin(ids_to_merge))
+            rows_to_update_mask = (output_df['normalized_horse_name'] == name) & (output_df['canonical_id'].isin(ids_to_merge))
             
             output_df.loc[rows_to_update_mask, 'canonical_id'] = final_id
             output_df.loc[rows_to_update_mask, 'last_merged_timestamp'] = pd.to_datetime(merge_timestamp)
@@ -474,8 +481,8 @@ def main():
     # Filter for only single horses, as multiple/none are ambiguous
     df_single = output_df[output_df['num_horses_detected'] == 'SINGLE'].copy()
 
-    # Group by the non-unique horse name
-    grouped_by_name = df_single.groupby('horse_name')
+    # Group by the normalized horse name
+    grouped_by_name = df_single.groupby('normalized_horse_name')
     
     print(f"\n=== Detailed analysis for recurring horse names ===")
 
@@ -536,7 +543,7 @@ def main():
                 # Update cache with new result
                 new_log_entry = {
                     'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                    'horse_name': name,
+                    'horse_name': name,  # This is now the normalized_horse_name
                     'canonical_id_a': cid_a_int,
                     'canonical_id_b': cid_b_int,
                     'message_id_a': msg_id_a,

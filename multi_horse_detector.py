@@ -16,8 +16,8 @@ with open('config.yml', 'r') as f:
 # --- Use the config values ---
 DATA_ROOT = os.path.expanduser(config['paths']['data_root'])
 IMAGE_DIR = config['paths']['dataset_dir'].format(data_root=DATA_ROOT)
-# It reads the base manifest and writes to the detected_manifest_file
-INPUT_MANIFEST_FILE = config['paths']['manifest_file'].format(data_root=DATA_ROOT)
+# It reads the normalized manifest and writes to the detected_manifest_file
+INPUT_MANIFEST_FILE = config['paths']['normalized_manifest_file'].format(data_root=DATA_ROOT)
 OUTPUT_MANIFEST_FILE = config['detection']['detected_manifest_file'].format(data_root=DATA_ROOT)
 YOLO_MODEL = config['detection']['yolo_model']
 CONFIDENCE_THRESHOLD = config['detection']['confidence_threshold']
@@ -160,9 +160,27 @@ def main():
             if 'num_horses_detected' in previous_detections_df.columns:
                 previous_detections_df['num_horses_detected'] = previous_detections_df['num_horses_detected'].fillna('').astype(str)
 
-            # Merge previous results into the current dataframe based on filename
+            # Merge previous results into the current dataframe based on core identification columns
             # This preserves existing data and allows us to only process new/missing rows
-            output_df = pd.merge(output_df, previous_detections_df, on=list(base_manifest_df.columns), how='left')
+            # Use only core columns that should be present in both files to avoid column mismatch errors
+            core_merge_columns = ['canonical_id', 'original_canonical_id', 'filename', 'message_id']
+            
+            # Only use columns that actually exist in both dataframes
+            available_merge_columns = [col for col in core_merge_columns 
+                                     if col in base_manifest_df.columns and col in previous_detections_df.columns]
+            
+            if available_merge_columns:
+                # Select only the detection-specific columns from previous detections to avoid duplicates
+                detection_columns = ['bbox_x', 'bbox_y', 'bbox_width', 'bbox_height', 'segmentation_mask']
+                columns_to_keep = available_merge_columns + [col for col in detection_columns 
+                                                           if col in previous_detections_df.columns]
+                
+                # Create a subset of previous detections with only the columns we need
+                prev_detections_subset = previous_detections_df[columns_to_keep]
+                
+                output_df = pd.merge(output_df, prev_detections_subset, on=available_merge_columns, how='left')
+            else:
+                print("Warning: No common merge columns found. Skipping merge with previous detections.")
 
     # Initialize new columns if they don't exist
     new_cols = {

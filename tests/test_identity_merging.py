@@ -37,17 +37,14 @@ class TestLoadRecurringNames:
     
     def test_load_recurring_names_success(self):
         """Test successful loading of recurring names."""
-        # Create mock Excel data
+        # Create mock CSV data (output from parse_horse_herds.py)
         mock_data = pd.DataFrame({
-            'col_0': [None, None, None, 'Pasture A', None, 'Cowboy 1', 'Sunny 2', 'Thunder', None],
-            'col_1': [None, None, None, None, None, None, None, None, None],
-            'col_2': [None, None, None, 'Pasture B', None, 'Lightning 1', 'Storm 2', 'Breeze', None],
-            'col_3': [None, None, None, None, None, None, None, None, None],
-            'col_4': [None, None, None, 'Pasture C', None, 'Cowboy 2', 'Sunny 3', 'Rain', None]
+            'horse_name': ['Cowboy 1', 'Sunny 2', 'Thunder', 'Lightning 1', 'Storm 2', 'Breeze', 'Cowboy 2', 'Sunny 3', 'Rain'],
+            'herd': ['Pasture A', 'Pasture A', 'Pasture A', 'Pasture B', 'Pasture B', 'Pasture B', 'Pasture C', 'Pasture C', 'Pasture C']
         })
         
         with patch('merge_horse_identities.os.path.exists', return_value=True):
-            with patch('merge_horse_identities.pd.read_excel', return_value=mock_data):
+            with patch('merge_horse_identities.pd.read_csv', return_value=mock_data):
                 result = load_recurring_names()
         
         expected = {'Cowboy', 'Lightning', 'Storm', 'Sunny'}
@@ -56,13 +53,12 @@ class TestLoadRecurringNames:
     def test_load_recurring_names_no_numbered_horses(self):
         """Test loading recurring names with no numbered horses."""
         mock_data = pd.DataFrame({
-            'col_0': [None, None, None, 'Pasture A', None, 'Thunder', 'Lightning', 'Storm', None],
-            'col_1': [None, None, None, None, None, None, None, None, None],
-            'col_2': [None, None, None, 'Pasture B', None, 'Breeze', 'Rain', 'Snow', None]
+            'horse_name': ['Thunder', 'Lightning', 'Storm', 'Breeze', 'Rain', 'Snow'],
+            'herd': ['Pasture A', 'Pasture A', 'Pasture A', 'Pasture B', 'Pasture B', 'Pasture B']
         })
         
         with patch('merge_horse_identities.os.path.exists', return_value=True):
-            with patch('merge_horse_identities.pd.read_excel', return_value=mock_data):
+            with patch('merge_horse_identities.pd.read_csv', return_value=mock_data):
                 result = load_recurring_names()
         
         assert result == set()
@@ -70,15 +66,12 @@ class TestLoadRecurringNames:
     def test_load_recurring_names_mixed_formats(self):
         """Test loading recurring names with mixed number formats."""
         mock_data = pd.DataFrame({
-            'col_0': [None, None, None, 'Pasture A', None, 'Cowboy 1', 'Sunny 2', 'Thunder 10', None],
-            'col_1': [None, None, None, None, None, None, None, None, None],
-            'col_2': [None, None, None, 'Pasture B', None, 'Lightning', 'Storm 22', 'Breeze', None],
-            'col_3': [None, None, None, None, None, None, None, None, None],
-            'col_4': [None, None, None, 'Pasture C', None, 'Cowboy 3', 'Rain 1', 'Snow', None]
+            'horse_name': ['Cowboy 1', 'Sunny 2', 'Thunder 10', 'Lightning', 'Storm 22', 'Breeze', 'Cowboy 3', 'Rain 1', 'Snow'],
+            'herd': ['Pasture A', 'Pasture A', 'Pasture A', 'Pasture B', 'Pasture B', 'Pasture B', 'Pasture C', 'Pasture C', 'Pasture C']
         })
         
         with patch('merge_horse_identities.os.path.exists', return_value=True):
-            with patch('merge_horse_identities.pd.read_excel', return_value=mock_data):
+            with patch('merge_horse_identities.pd.read_csv', return_value=mock_data):
                 result = load_recurring_names()
         
         expected = {'Cowboy', 'Sunny', 'Thunder', 'Storm', 'Rain'}
@@ -89,20 +82,20 @@ class TestLoadRecurringNames:
         mock_data = pd.DataFrame()
         
         with patch('merge_horse_identities.os.path.exists', return_value=True):
-            with patch('merge_horse_identities.pd.read_excel', return_value=mock_data):
+            with patch('merge_horse_identities.pd.read_csv', return_value=mock_data):
                 result = load_recurring_names()
         
         assert result == set()
     
     def test_load_recurring_names_missing_row_3(self):
-        """Test loading recurring names with missing row 3."""
+        """Test loading recurring names with minimal data."""
         mock_data = pd.DataFrame({
-            'col_0': [None, None],
-            'col_1': [None, None]
+            'horse_name': [],
+            'herd': []
         })
         
         with patch('merge_horse_identities.os.path.exists', return_value=True):
-            with patch('merge_horse_identities.pd.read_excel', return_value=mock_data):
+            with patch('merge_horse_identities.pd.read_csv', return_value=mock_data):
                 result = load_recurring_names()
         
         assert result == set()
@@ -110,39 +103,35 @@ class TestLoadRecurringNames:
     def test_load_recurring_names_with_nan_values(self):
         """Test loading recurring names with NaN values."""
         mock_data = pd.DataFrame({
-            'col_0': [None, None, None, 'Pasture A', None, 'Cowboy 1', np.nan, 'Thunder', None],
-            'col_1': [None, None, None, None, None, None, None, None, None],
-            'col_2': [None, None, None, 'Pasture B', None, np.nan, 'Storm 2', 'Breeze', None]
+            'horse_name': ['Cowboy 1', np.nan, 'Thunder', np.nan, 'Storm 2', 'Breeze'],
+            'herd': ['Pasture A', 'Pasture A', 'Pasture A', 'Pasture B', 'Pasture B', 'Pasture B']
         })
         
         with patch('merge_horse_identities.os.path.exists', return_value=True):
-            with patch('merge_horse_identities.pd.read_excel', return_value=mock_data):
+            with patch('merge_horse_identities.pd.read_csv', return_value=mock_data):
                 result = load_recurring_names()
         
         expected = {'Cowboy', 'Storm'}
         assert result == expected
     
     def test_load_recurring_names_feed_column_exclusion(self):
-        """Test loading recurring names excludes 'Feed:' columns."""
+        """Test loading recurring names (no feed columns in CSV format)."""
         mock_data = pd.DataFrame({
-            'col_0': [None, None, None, 'Pasture A', None, 'Cowboy 1', 'Sunny 2', 'Thunder', None],
-            'col_1': [None, None, None, None, None, None, None, None, None],
-            'col_2': [None, None, None, 'Feed:', None, 'Hay', 'Grain', 'Water', None],
-            'col_3': [None, None, None, None, None, None, None, None, None],
-            'col_4': [None, None, None, 'Pasture B', None, 'Lightning 1', 'Storm 2', 'Breeze', None]
+            'horse_name': ['Cowboy 1', 'Sunny 2', 'Thunder', 'Lightning 1', 'Storm 2', 'Breeze'],
+            'herd': ['Pasture A', 'Pasture A', 'Pasture A', 'Pasture B', 'Pasture B', 'Pasture B']
         })
         
         with patch('merge_horse_identities.os.path.exists', return_value=True):
-            with patch('merge_horse_identities.pd.read_excel', return_value=mock_data):
+            with patch('merge_horse_identities.pd.read_csv', return_value=mock_data):
                 result = load_recurring_names()
         
         expected = {'Cowboy', 'Sunny', 'Lightning', 'Storm'}
         assert result == expected
     
     def test_load_recurring_names_excel_read_error(self):
-        """Test loading recurring names with Excel read error."""
+        """Test loading recurring names with CSV read error."""
         with patch('merge_horse_identities.os.path.exists', return_value=True):
-            with patch('merge_horse_identities.pd.read_excel', side_effect=Exception('Excel read error')):
+            with patch('merge_horse_identities.pd.read_csv', side_effect=Exception('CSV read error')):
                 result = load_recurring_names()
         
         assert result == set()
@@ -150,13 +139,12 @@ class TestLoadRecurringNames:
     def test_load_recurring_names_complex_names(self):
         """Test loading recurring names with complex horse names."""
         mock_data = pd.DataFrame({
-            'col_0': [None, None, None, 'Pasture A', None, 'Sky Blue 1', 'Thunder Storm 2', 'Little Thunder', None],
-            'col_1': [None, None, None, None, None, None, None, None, None],
-            'col_2': [None, None, None, 'Pasture B', None, 'Sky Blue 2', 'Thunder Storm 3', 'Big Thunder', None]
+            'horse_name': ['Sky Blue 1', 'Thunder Storm 2', 'Little Thunder', 'Sky Blue 2', 'Thunder Storm 3', 'Big Thunder'],
+            'herd': ['Pasture A', 'Pasture A', 'Pasture A', 'Pasture B', 'Pasture B', 'Pasture B']
         })
         
         with patch('merge_horse_identities.os.path.exists', return_value=True):
-            with patch('merge_horse_identities.pd.read_excel', return_value=mock_data):
+            with patch('merge_horse_identities.pd.read_csv', return_value=mock_data):
                 result = load_recurring_names()
         
         expected = {'Sky Blue', 'Thunder Storm'}
@@ -165,13 +153,12 @@ class TestLoadRecurringNames:
     def test_load_recurring_names_single_space_separation(self):
         """Test loading recurring names with single space separation."""
         mock_data = pd.DataFrame({
-            'col_0': [None, None, None, 'Pasture A', None, 'Thunder1', 'Lightning 2', 'Storm3', None],
-            'col_1': [None, None, None, None, None, None, None, None, None],
-            'col_2': [None, None, None, 'Pasture B', None, 'Thunder 1', 'Lightning3', 'Storm 2', None]
+            'horse_name': ['Thunder1', 'Lightning 2', 'Storm3', 'Thunder 1', 'Lightning3', 'Storm 2'],
+            'herd': ['Pasture A', 'Pasture A', 'Pasture A', 'Pasture B', 'Pasture B', 'Pasture B']
         })
         
         with patch('merge_horse_identities.os.path.exists', return_value=True):
-            with patch('merge_horse_identities.pd.read_excel', return_value=mock_data):
+            with patch('merge_horse_identities.pd.read_csv', return_value=mock_data):
                 result = load_recurring_names()
         
         expected = {'Thunder', 'Lightning', 'Storm'}
@@ -180,13 +167,12 @@ class TestLoadRecurringNames:
     def test_load_recurring_names_edge_cases(self):
         """Test loading recurring names with edge cases."""
         mock_data = pd.DataFrame({
-            'col_0': [None, None, None, 'Pasture A', None, 'A 1', 'B 123', 'C 0', None],
-            'col_1': [None, None, None, None, None, None, None, None, None],
-            'col_2': [None, None, None, 'Pasture B', None, 'A 2', 'B 456', 'D 1', None]
+            'horse_name': ['A 1', 'B 123', 'C 0', 'A 2', 'B 456', 'D 1'],
+            'herd': ['Pasture A', 'Pasture A', 'Pasture A', 'Pasture B', 'Pasture B', 'Pasture B']
         })
         
         with patch('merge_horse_identities.os.path.exists', return_value=True):
-            with patch('merge_horse_identities.pd.read_excel', return_value=mock_data):
+            with patch('merge_horse_identities.pd.read_csv', return_value=mock_data):
                 result = load_recurring_names()
         
         expected = {'A', 'B', 'C', 'D'}
@@ -195,13 +181,12 @@ class TestLoadRecurringNames:
     def test_load_recurring_names_whitespace_handling(self):
         """Test loading recurring names with whitespace handling."""
         mock_data = pd.DataFrame({
-            'col_0': [None, None, None, 'Pasture A', None, '  Thunder 1  ', 'Lightning 2', '  Storm  ', None],
-            'col_1': [None, None, None, None, None, None, None, None, None],
-            'col_2': [None, None, None, 'Pasture B', None, 'Thunder 2', '  Lightning 3  ', 'Rain', None]
+            'horse_name': ['  Thunder 1  ', 'Lightning 2', '  Storm  ', 'Thunder 2', '  Lightning 3  ', 'Rain'],
+            'herd': ['Pasture A', 'Pasture A', 'Pasture A', 'Pasture B', 'Pasture B', 'Pasture B']
         })
         
         with patch('merge_horse_identities.os.path.exists', return_value=True):
-            with patch('merge_horse_identities.pd.read_excel', return_value=mock_data):
+            with patch('merge_horse_identities.pd.read_csv', return_value=mock_data):
                 result = load_recurring_names()
         
         expected = {'Thunder', 'Lightning'}

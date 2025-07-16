@@ -13,22 +13,25 @@ This is a Horse Identity Matching System that identifies individual horses based
 # 1. Ingest emails and extract horse photos
 python ingest_from_email.py
 
-# 2. Detect number of horses in each photo
+# 2. Normalize horse names against master list (with CLI interaction)
+python normalize_horse_names.py
+
+# 3. Detect number of horses in each photo
 python multi_horse_detector.py
 
-# 3. Merge identities of horses with same name
+# 4. Merge identities of horses with same name
 python merge_horse_identities.py
 
-# 4. Review merge decisions interactively
+# 5. Review merge decisions interactively
 streamlit run review_merges_app.py
 
-# 5. Generate HTML galleries for visual review
+# 6. Generate HTML galleries for visual review
 python generate_gallery.py
 
-# 6. Extract features for similarity matching
+# 7. Extract features for similarity matching
 python extract_features.py
 
-# 7. Upload data to S3
+# 8. Upload data to S3
 python upload_to_s3.py
 ```
 
@@ -54,11 +57,12 @@ docker build --platform linux/amd64 -f Dockerfile.responder -t horse-id-responde
 
 ### Data Flow Pipeline
 1. **Email Ingestion** (`ingest_from_email.py`) - Fetches emails, extracts horse names, saves images
-2. **Multi-Horse Detection** (`multi_horse_detector.py`) - Uses YOLO to classify images as NONE/SINGLE/MULTIPLE horses
-3. **Identity Merging** (`merge_horse_identities.py`) - Uses WildFusion similarity to merge photos of same horse
-4. **Merge Review** (`review_merges_app.py`) - Interactive web app for correcting merge decisions
-5. **Feature Extraction** (`extract_features.py`) - Pre-extracts features using Wildlife-mega-L-384 model
-6. **AWS Lambda Deployment** - Two-function architecture for real-time horse identification
+2. **Name Normalization** (`normalize_horse_names.py`) - Normalizes horse names against master list with CLI interaction for uncertain matches
+3. **Multi-Horse Detection** (`multi_horse_detector.py`) - Uses YOLO to classify images as NONE/SINGLE/MULTIPLE horses
+4. **Identity Merging** (`merge_horse_identities.py`) - Uses Wildlife-mega-L-384 similarity to merge photos of same horse based on normalized names
+5. **Merge Review** (`review_merges_app.py`) - Interactive web app for correcting merge decisions
+6. **Feature Extraction** (`extract_features.py`) - Pre-extracts features using Wildlife-mega-L-384 model
+7. **AWS Lambda Deployment** - Two-function architecture for real-time horse identification
 
 ### Key Technologies
 - **WildlifeTools Framework** - Core similarity matching and feature extraction
@@ -69,9 +73,11 @@ docker build --platform linux/amd64 -f Dockerfile.responder -t horse-id-responde
 
 ### CSV Data Files
 - `manifest_file` - Initial photos from email ingestion
+- `normalized_manifest_file` - After horse name normalization with CLI interaction
 - `detected_manifest_file` - After horse detection analysis
-- `merged_manifest_file` - Final merged identities
+- `merged_manifest_file` - Final merged identities based on normalized names
 - `merge_results_file` - Log of similarity comparisons
+- `approved_horse_normalizations.json` - Approved name mapping decisions
 
 ### Lambda Architecture
 - **webhook-responder** - Receives Twilio webhooks, returns immediate response
@@ -86,7 +92,9 @@ docker build --platform linux/amd64 -f Dockerfile.responder -t horse-id-responde
 
 ## Development Notes
 
-- The system uses a specific workflow order - email ingestion must happen before detection, detection before merging, etc.
+- The system uses a specific workflow order - email ingestion → name normalization → detection → merging, etc.
+- **Name normalization step** addresses "horse name drift" where email names vary slightly from master list (e.g., 'Goodwill' vs 'Good Will')
+- Normalization requires CLI interaction for uncertain matches but saves decisions for future consistency
 - Calibration files (`.pkl`) are required for similarity matching and are created by the Jupyter notebook
 - The system is designed to handle incremental processing - scripts can be re-run to process new data
 - All file paths use `{data_root}` placeholder pattern for environment-agnostic configuration

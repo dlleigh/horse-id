@@ -77,6 +77,13 @@ def parse_horse_herds(excel_file=None, output_file=None):
     # Extract horse names for each herd
     horse_data = []
     
+    def create_base_name(name: str) -> str:
+        """Create base name by removing trailing numbers."""
+        import re
+        # Remove trailing space + number pattern
+        base = re.sub(r'\s+\d+$', '', name)
+        return base.strip()
+    
     for herd in herd_info:
         col_index = herd['col_index']
         herd_name = herd['name']
@@ -87,9 +94,11 @@ def parse_horse_herds(excel_file=None, output_file=None):
             
             # If we find a valid horse name (not NaN and not empty)
             if pd.notna(horse_name) and str(horse_name).strip():
+                horse_name_str = str(horse_name).strip()
                 horse_data.append({
-                    'horse_name': str(horse_name).strip(),
-                    'herd': herd_name
+                    'horse_name': horse_name_str,
+                    'herd': herd_name,
+                    'basename': create_base_name(horse_name_str)
                 })
     
     # Remove duplicates while preserving order (keep multiple herds for same horse name)
@@ -139,7 +148,7 @@ def parse_horse_herds(excel_file=None, output_file=None):
     
     # Write to CSV
     with open(output_file, 'w', newline='', encoding='utf-8') as csvfile:
-        fieldnames = ['horse_name', 'herd']
+        fieldnames = ['horse_name', 'herd', 'basename']
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
         
         writer.writeheader()

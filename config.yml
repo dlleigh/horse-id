@@ -7,6 +7,8 @@ paths:
   data_root: "~/google-drive/horseID Project/data"
   dataset_dir: "{data_root}/horse_photos"
   manifest_file: "{data_root}/horse_photos_manifest.csv"
+  # Output file from name normalization step
+  normalized_manifest_file: "{data_root}/horse_photos_manifest_normalized.csv"
   # Directory for pre-trained models and calibrations
   calibration_dir: "{data_root}/calibrations"
   temp_dir: "{data_root}/tmp"
@@ -30,7 +32,7 @@ detection:
   # If multiple horses are detected, but one is significantly larger than others,
   # consider it a single primary detection. e.g., 2.0 means twice as large.
   size_ratio_for_single_horse: 2.2
-  # The detector will read from manifest_file and write to this file
+  # The detector will read from normalized_manifest_file and write to this file
   detected_manifest_file: "{data_root}/horse_photos_manifest_detected.csv"
   
   # --- Depth Analysis Weights ---
@@ -90,6 +92,11 @@ similarity:
   inference_threshold: 0.8
   master_horse_location_file: "{data_root}/Master Horse-Location List.xlsx"
   
+
+# --- Normalization Settings ---
+normalization:
+  auto_approve_threshold: 0.9  # Confidence threshold for auto-approval
+  approved_mappings_file: "{data_root}/approved_horse_normalizations.json"
 
 # --- S3 Settings ---
 s3:
