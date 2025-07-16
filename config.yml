@@ -82,6 +82,10 @@ detection:
     edge_moderate_depth_threshold: 0.1          # Depth threshold for moderate edge advantage
 
 
+# --- Herd Parser Settings ---
+herd_parser:
+  master_horse_location_file: "{data_root}/Master Horse-Location List.xlsx"
+
 # --- Similarity/Merging Settings ---
 similarity:
   # The threshold for determining if two groups of photos represent the same horse.
@@ -90,7 +94,6 @@ similarity:
   # The merge script will read from the detected_manifest_file.
   # This ensures it only works on data that has been processed by the detector.
   inference_threshold: 0.8
-  master_horse_location_file: "{data_root}/Master Horse-Location List.xlsx"
   
 
 # --- Normalization Settings ---

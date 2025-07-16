@@ -91,10 +91,12 @@ def sample_config():
             },
             'size_ratio_for_single_horse': 2.2
         },
+        'herd_parser': {
+            'master_horse_location_file': '{data_root}/master_horses.xlsx'
+        },
         'similarity': {
             'merge_threshold': 0.7,
-            'inference_threshold': 0.6,
-            'master_horse_location_file': '{data_root}/master_horses.xlsx'
+            'inference_threshold': 0.6
         },
         's3': {
             'bucket_name': 'test-bucket'

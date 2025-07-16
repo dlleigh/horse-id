@@ -40,8 +40,12 @@ class TestPipelineIntegration(unittest.TestCase):
             'detection': {
                 'detected_manifest_file': f'{self.test_dir}/horse_photos_manifest_detected.csv'
             },
-            'similarity': {
+            'herd_parser': {
                 'master_horse_location_file': f'{self.test_dir}/Master Horse-Location List.xlsx'
+            },
+            'similarity': {
+                'merge_threshold': 0.203,
+                'inference_threshold': 0.8
             },
             'normalization': {
                 'auto_approve_threshold': 0.9,
@@ -77,7 +81,7 @@ class TestPipelineIntegration(unittest.TestCase):
         self.test_manifest_data.to_csv(manifest_path, index=False)
         
         # Create master horse list
-        master_path = self.test_config['similarity']['master_horse_location_file']
+        master_path = self.test_config['herd_parser']['master_horse_location_file']
         os.makedirs(os.path.dirname(master_path), exist_ok=True)
         self.master_horse_data.to_excel(master_path, index=False)
         

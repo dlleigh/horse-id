@@ -23,7 +23,7 @@ def setup_paths(config):
     """Setup input and output paths from configuration"""
     try:
         data_root = os.path.expanduser(config['paths']['data_root'])
-        excel_file = config['similarity']['master_horse_location_file'].format(data_root=data_root)
+        excel_file = config['herd_parser']['master_horse_location_file'].format(data_root=data_root)
         output_file = config['paths']['horse_herds_file'].format(data_root=data_root)
         return excel_file, output_file
     except KeyError as e:

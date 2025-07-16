@@ -235,10 +235,18 @@ class TestConfigValidation:
     def test_similarity_config_validation(self, sample_config):
         """Test that similarity configuration has required keys."""
         similarity_config = sample_config['similarity']
-        required_keys = ['merge_threshold', 'inference_threshold', 'master_horse_location_file']
+        required_keys = ['merge_threshold', 'inference_threshold']
         
         for key in required_keys:
             assert key in similarity_config, f"Missing required similarity config key: {key}"
+    
+    def test_herd_parser_config_validation(self, sample_config):
+        """Test that herd_parser configuration has required keys."""
+        herd_parser_config = sample_config['herd_parser']
+        required_keys = ['master_horse_location_file']
+        
+        for key in required_keys:
+            assert key in herd_parser_config, f"Missing required herd_parser config key: {key}"
     
     def test_s3_config_validation(self, sample_config):
         """Test that S3 configuration has required keys."""
