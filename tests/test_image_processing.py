@@ -250,6 +250,7 @@ class TestHorsesDataset:
         sample_data = pd.DataFrame({
             'filename': ['horse1.jpg', 'horse2.jpg', 'horse3.jpg'],
             'horse_name': ['Thunder', 'Lightning', 'Storm'],
+            'normalized_horse_name': ['Thunder', 'Lightning', 'Storm'],
             'email_date': ['20230101', '20230102', '20230103']
         })
         
@@ -262,7 +263,7 @@ class TestHorsesDataset:
                 continue
             expected_filtered_data.append({
                 'image_id': row['filename'],
-                'identity': row['horse_name'],
+                'identity': row['normalized_horse_name'],
                 'path': row['filename'],
                 'date': pd.to_datetime(str(row['email_date']), format='%Y%m%d')
             })
@@ -279,6 +280,7 @@ class TestHorsesDataset:
         sample_data = pd.DataFrame({
             'filename': ['horse1.jpg', 'horse2.jpg', 'horse3.jpg'],
             'horse_name': ['Thunder', 'Lightning', 'Storm'],
+            'normalized_horse_name': ['Thunder', 'Lightning', 'Storm'],
             'email_date': ['20230101', '20230102', '20230103'],
             'status': ['ACTIVE', 'EXCLUDE', 'ACTIVE']
         })
@@ -292,7 +294,7 @@ class TestHorsesDataset:
                 continue
             filtered_data.append({
                 'image_id': row['filename'],
-                'identity': row['horse_name'],
+                'identity': row['normalized_horse_name'],
                 'path': row['filename'],
                 'date': pd.to_datetime(str(row['email_date']), format='%Y%m%d')
             })
@@ -308,6 +310,7 @@ class TestHorsesDataset:
         sample_data = pd.DataFrame({
             'filename': ['horse1.jpg', 'horse2.jpg', 'horse3.jpg'],
             'horse_name': ['Thunder', 'Lightning', 'Storm'],
+            'normalized_horse_name': ['Thunder', 'Lightning', 'Storm'],
             'email_date': ['20230101', '20230102', '20230103'],
             'num_horses_detected': ['SINGLE', 'MULTIPLE', 'SINGLE']
         })
@@ -321,7 +324,7 @@ class TestHorsesDataset:
                 continue
             filtered_data.append({
                 'image_id': row['filename'],
-                'identity': row['horse_name'],
+                'identity': row['normalized_horse_name'],
                 'path': row['filename'],
                 'date': pd.to_datetime(str(row['email_date']), format='%Y%m%d')
             })
@@ -337,6 +340,7 @@ class TestHorsesDataset:
         sample_data = pd.DataFrame({
             'filename': ['horse1.jpg', 'horse2.jpg', 'horse3.jpg'],
             'horse_name': ['Thunder', 'Lightning', 'Storm'],
+            'normalized_horse_name': ['Thunder', 'Lightning', 'Storm'],
             'email_date': ['20230101', '20230102', '20230103'],
             'num_horses_detected': ['SINGLE', 'NONE', 'SINGLE']
         })
@@ -350,7 +354,7 @@ class TestHorsesDataset:
                 continue
             filtered_data.append({
                 'image_id': row['filename'],
-                'identity': row['horse_name'],
+                'identity': row['normalized_horse_name'],
                 'path': row['filename'],
                 'date': pd.to_datetime(str(row['email_date']), format='%Y%m%d')
             })
@@ -366,6 +370,7 @@ class TestHorsesDataset:
         sample_data = pd.DataFrame({
             'filename': ['horse1.jpg'],
             'horse_name': ['Thunder'],
+            'normalized_horse_name': ['Thunder'],
             'email_date': ['20230101']
         })
         
@@ -378,7 +383,7 @@ class TestHorsesDataset:
                 continue
             filtered_data.append({
                 'image_id': row['filename'],
-                'identity': row['horse_name'],
+                'identity': row['normalized_horse_name'],
                 'path': row['filename'],
                 'date': pd.to_datetime(str(row['email_date']), format='%Y%m%d')
             })
@@ -414,7 +419,7 @@ class TestHorsesDataset:
                 continue
             filtered_data.append({
                 'image_id': row['filename'],
-                'identity': row['horse_name'],
+                'identity': row['normalized_horse_name'],
                 'path': row['filename'],
                 'date': pd.to_datetime(str(row['email_date']), format='%Y%m%d')
             })

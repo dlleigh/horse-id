@@ -50,7 +50,7 @@ class Horses(datasets.WildlifeDataset):
             rows.append({
                 'image_id': row['filename'],
                 #'identity': row['canonical_id'],
-                'identity': row['horse_name'],
+                'identity': row['normalized_horse_name'],
                 'path': row['filename'],
                 'date': pd.to_datetime(str(row['email_date']), format='%Y%m%d')
             })
@@ -230,7 +230,7 @@ def process_image_for_identification(image_url, twilio_account_sid=None, twilio_
             'path': os.path.basename(temp_image_path), # ImageDataset needs relative path from its root
             'identity': -1, # Dummy identity for query
             'image_id': 'query_image',
-            'horse_name': 'query_horse', # Dummy name
+            'normalized_horse_name': 'query_horse', # Dummy name
             'date': pd.Timestamp.now() # Dummy date
         }])
         transform = T.Compose([
