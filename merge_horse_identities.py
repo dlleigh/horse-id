@@ -25,7 +25,7 @@ with open('config.yml', 'r') as f:
 DATA_ROOT = os.path.expanduser(config['paths']['data_root'])
 IMAGE_DIR = config['paths']['dataset_dir'].format(data_root=DATA_ROOT)
 # Reads from the detector's output, writes to the final merged file
-INPUT_MANIFEST_FILE = config['detection']['detected_manifest_file'].format(data_root=DATA_ROOT)
+INPUT_MANIFEST_FILE = config['paths']['detected_manifest_file'].format(data_root=DATA_ROOT)
 OUTPUT_MANIFEST_FILE = config['paths']['merged_manifest_file'].format(data_root=DATA_ROOT)
 MERGE_RESULTS_FILE = config['paths']['merge_results_file'].format(data_root=DATA_ROOT)
 SIMILARITY_THRESHOLD = config['similarity']['merge_threshold']
@@ -391,7 +391,7 @@ def main():
     # Load global similarity system (Wildlife-mega-L-384 model)
     extractor, similarity_function, transform = load_global_similarity_system()
     
-    # INPUT_MANIFEST_FILE is config['detection']['detected_manifest_file']
+    # INPUT_MANIFEST_FILE is config['paths']['detected_manifest_file']
     # OUTPUT_MANIFEST_FILE is config['paths']['merged_manifest_file'] (this script's output)
     print(f"Reading detected manifest: {INPUT_MANIFEST_FILE}")
     try:

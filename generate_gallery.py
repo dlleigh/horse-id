@@ -16,7 +16,7 @@ except FileNotFoundError:
 DATA_ROOT = os.path.expanduser(config['paths']['data_root'])
 IMAGE_DIR = config['paths']['dataset_dir'].format(data_root=DATA_ROOT)
 # Use the final merged manifest as the data source
-# MANIFEST_FILE = config['detection']['detected_manifest_file'].format(data_root=DATA_ROOT) # Will be dynamic
+# MANIFEST_FILE = config['paths']['detected_manifest_file'].format(data_root=DATA_ROOT) # Will be dynamic
 GALLERY_BASE_FILENAME = "horse_gallery"
 GALLERY_OUTPUT_DIR = DATA_ROOT # Assumes DATA_ROOT is a directory like '.../data'
 
@@ -545,7 +545,7 @@ def main():
         },
         "detected": {
             "display": "Detected (After YOLO)",
-            "path_template": config['detection']['detected_manifest_file']
+            "path_template": config['paths']['detected_manifest_file']
         },
         "merged": {
             "display": "Merged (After Similarity)",

@@ -48,12 +48,12 @@ def sample_config():
             'calibration_dir': '{data_root}/calibration',
             'merge_results_file': '{data_root}/merge_results.csv',
             'temp_dir': '{data_root}/temp',
-            'horse_herds_file': '{data_root}/horse_herds.csv'
+            'horse_herds_file': '{data_root}/horse_herds.csv',
+            'detected_manifest_file': '{data_root}/detected_manifest.csv'
         },
         'detection': {
             'yolo_model': 'yolov8n.pt',
             'confidence_threshold': 0.5,
-            'detected_manifest_file': '{data_root}/detected_manifest.csv',
             'depth_analysis': {
                 'vertical_position_weight': 0.3,
                 'overlap_threshold': 0.1,

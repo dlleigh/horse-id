@@ -35,10 +35,10 @@ class TestPipelineIntegration(unittest.TestCase):
                 'data_root': self.test_dir,
                 'manifest_file': f'{self.test_dir}/horse_photos_manifest.csv',
                 'normalized_manifest_file': f'{self.test_dir}/horse_photos_manifest_normalized.csv',
-                'dataset_dir': f'{self.test_dir}/horse_photos'
+                'dataset_dir': f'{self.test_dir}/horse_photos',
+                'detected_manifest_file': f'{self.test_dir}/horse_photos_manifest_detected.csv'
             },
             'detection': {
-                'detected_manifest_file': f'{self.test_dir}/horse_photos_manifest_detected.csv'
             },
             'herd_parser': {
                 'master_horse_location_file': f'{self.test_dir}/Master Horse-Location List.xlsx'
@@ -195,7 +195,7 @@ class TestPipelineIntegration(unittest.TestCase):
         detected_data['normalization_method'] = 'exact'
         detected_data['normalization_timestamp'] = '2024-01-01 12:00:00'
         
-        detected_path = self.test_config['detection']['detected_manifest_file']
+        detected_path = self.test_config['paths']['detected_manifest_file']
         os.makedirs(os.path.dirname(detected_path), exist_ok=True)
         detected_data.to_csv(detected_path, index=False)
         
@@ -299,10 +299,10 @@ class TestConfigurationUpdates(unittest.TestCase):
         config = {
             'paths': {
                 'manifest_file': "{data_root}/horse_photos_manifest.csv",
-                'normalized_manifest_file': "{data_root}/horse_photos_manifest_normalized.csv"
+                'normalized_manifest_file': "{data_root}/horse_photos_manifest_normalized.csv",
+                'detected_manifest_file': "{data_root}/horse_photos_manifest_detected.csv"
             },
             'detection': {
-                'detected_manifest_file': "{data_root}/horse_photos_manifest_detected.csv"
             },
             'normalization': {
                 'auto_approve_threshold': 0.9,

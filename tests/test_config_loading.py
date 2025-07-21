@@ -224,7 +224,7 @@ class TestConfigValidation:
         """Test that detection configuration has required keys."""
         detection_config = sample_config['detection']
         required_keys = [
-            'yolo_model', 'confidence_threshold', 'detected_manifest_file',
+            'yolo_model', 'confidence_threshold',
             'depth_analysis', 'edge_cropping', 'subject_identification',
             'classification', 'size_ratio_for_single_horse'
         ]

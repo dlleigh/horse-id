@@ -18,7 +18,7 @@ DATA_ROOT = os.path.expanduser(config['paths']['data_root'])
 IMAGE_DIR = config['paths']['dataset_dir'].format(data_root=DATA_ROOT)
 # It reads the normalized manifest and writes to the detected_manifest_file
 INPUT_MANIFEST_FILE = config['paths']['normalized_manifest_file'].format(data_root=DATA_ROOT)
-OUTPUT_MANIFEST_FILE = config['detection']['detected_manifest_file'].format(data_root=DATA_ROOT)
+OUTPUT_MANIFEST_FILE = config['paths']['detected_manifest_file'].format(data_root=DATA_ROOT)
 YOLO_MODEL = config['detection']['yolo_model']
 CONFIDENCE_THRESHOLD = config['detection']['confidence_threshold']
 

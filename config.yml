@@ -13,6 +13,8 @@ paths:
   calibration_dir: "{data_root}/calibrations"
   temp_dir: "{data_root}/tmp"
   features_dir: "{data_root}/features"
+  # Output file from multi-horse detection step
+  detected_manifest_file: "{data_root}/horse_photos_manifest_detected.csv"
   # Output file for the merged manifest
   merged_manifest_file: "{data_root}/horse_photos_manifest_merged.csv"
   merge_results_file: "{data_root}/merge_results.csv" # Renamed from similarity_log_file
@@ -32,8 +34,6 @@ detection:
   # If multiple horses are detected, but one is significantly larger than others,
   # consider it a single primary detection. e.g., 2.0 means twice as large.
   size_ratio_for_single_horse: 2.2
-  # The detector will read from normalized_manifest_file and write to this file
-  detected_manifest_file: "{data_root}/horse_photos_manifest_detected.csv"
   
   # --- Depth Analysis Weights ---
   depth_analysis:
@@ -91,7 +91,7 @@ similarity:
   # The threshold for determining if two groups of photos represent the same horse.
   # A lower value means more likely to merge (less sensitive to differences).
   merge_threshold: 0.203
-  # The merge script will read from the detected_manifest_file.
+  # The merge script will read from paths.detected_manifest_file.
   # This ensures it only works on data that has been processed by the detector.
   inference_threshold: 0.8
   
