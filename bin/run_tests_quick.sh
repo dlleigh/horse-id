@@ -28,4 +28,4 @@ echo "✅ All tests passed!"
 # Run the optimal high-confidence subset
 echo ""
 echo "Running high-confidence validation..."
-./run_tests_optimal.sh
+./bin/run_tests_optimal.sh

@@ -11,7 +11,7 @@ omit = [
     "*/__pycache__/*",
     "*/conftest.py",
     "run_tests*.py",
-    "setup_test_env.sh",
+    "bin/setup_test_env.sh",
 ]
 
 [tool.coverage.report]

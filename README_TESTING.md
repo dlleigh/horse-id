@@ -11,21 +11,21 @@ This directory contains a comprehensive unit test suite for the Horse ID project
 
 | Script | Purpose | Speed | Coverage | Use Case |
 |--------|---------|-------|----------|----------|
-| `./run_tests.sh` | **Complete validation** | Slower | ✅ Full coverage | CI/CD, releases, comprehensive validation |
-| `./run_tests_quick.sh` | **Fast development** | Faster | ❌ No coverage | Development, quick feedback loops |
-| `./run_tests_optimal.sh` | **Core validation** | Fastest | ❌ Core only | Critical path verification, smoke tests |
+| `./bin/run_tests.sh` | **Complete validation** | Slower | ✅ Full coverage | CI/CD, releases, comprehensive validation |
+| `./bin/run_tests_quick.sh` | **Fast development** | Faster | ❌ No coverage | Development, quick feedback loops |
+| `./bin/run_tests_optimal.sh` | **Core validation** | Fastest | ❌ Core only | Critical path verification, smoke tests |
 
 ### Recommended Usage
 
 ```bash
 # For development (fast feedback)
-./run_tests_quick.sh
+./bin/run_tests_quick.sh
 
 # For CI/CD and releases (complete validation)
-./run_tests.sh
+./bin/run_tests.sh
 
 # For smoke testing (core functionality)
-./run_tests_optimal.sh
+./bin/run_tests_optimal.sh
 ```
 
 ### Zero-Dependency Option
@@ -289,7 +289,7 @@ Located in `tests/conftest.py`:
 pip install -r test-requirements.txt
 
 # Run complete test suite with reports
-./run_tests.sh
+./bin/run_tests.sh
 
 # Or run specific CI command
 pytest tests/ \
@@ -328,9 +328,9 @@ When adding new tests:
 ### 🔄 Development Workflow
 
 1. **Make changes** to code
-2. **Quick validation**: `./run_tests_quick.sh`
-3. **Before commit**: `./run_tests.sh`
-4. **Core verification**: `./run_tests_optimal.sh`
+2. **Quick validation**: `./bin/run_tests_quick.sh`
+3. **Before commit**: `./bin/run_tests.sh`
+4. **Core verification**: `./bin/run_tests_optimal.sh`
 
 ### 🎉 Success Metrics
 
