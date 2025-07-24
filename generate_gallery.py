@@ -193,6 +193,14 @@ def create_html_gallery(df, output_path, manifest_display_name, current_manifest
             <option value="NONE">No Detection</option>
         </select>
 
+        <label for="status-filter" style="margin-left: 20px;">Filter by Status:</label>
+        <select id="status-filter" onchange="filterGallery()">
+            <option value="all">All Status</option>
+            <option value="active">Active (No Status)</option>
+            <option value="EXCLUDE">EXCLUDE</option>
+            <option value="REVIEW">REVIEW</option>
+        </select>
+
         <span style="margin-left: 20px;">
             <input type="checkbox" id="merged-filter" onchange="filterGallery()">
             <label for="merged-filter">Show Merged Horses</label>
@@ -426,6 +434,7 @@ def create_html_gallery(df, output_path, manifest_display_name, current_manifest
 
             const sizeRatioFilterInput = document.getElementById('size-ratio-filter');
             const detectionFilter = document.getElementById('detection-filter').value;
+            const statusFilter = document.getElementById('status-filter').value;
             const mergedFilterActive = document.getElementById('merged-filter').checked;
             const unmergedMultiIdFilterActive = document.getElementById('unmerged-multi-id-filter').checked;
             const galleryItems = document.querySelectorAll('.gallery-item');
@@ -486,6 +495,7 @@ def create_html_gallery(df, output_path, manifest_display_name, current_manifest
             galleryItems.forEach(item => {
                 const horseName = item.getAttribute('data-horse-name');
                 const detection = item.getAttribute('data-detection');
+                const status = item.getAttribute('data-status');
                 const itemSizeRatioStr = item.getAttribute('data-size-ratio');
                 const itemSizeRatio = parseFloat(itemSizeRatioStr);
                 const isMergedItem = item.getAttribute('data-is-merged') === 'true';
@@ -505,9 +515,18 @@ def create_html_gallery(df, output_path, manifest_display_name, current_manifest
                     matchesDetection = detection === detectionFilter;
                 }
 
+                let matchesStatus;
+                if (statusFilter === 'all') {
+                    matchesStatus = true;
+                } else if (statusFilter === 'active') {
+                    matchesStatus = (status === '' || status === 'N/A' || !status);
+                } else {
+                    matchesStatus = status === statusFilter;
+                }
+
                 const matchesSizeRatio = isNaN(sizeRatioFilterValue) || (itemSizeRatioStr !== 'N/A' && itemSizeRatioStr.toLowerCase() !== 'nan' && !isNaN(itemSizeRatio) && itemSizeRatio >= sizeRatioFilterValue);
 
-                item.style.display = (matchesHorse && matchesDetection && matchesSizeRatio && matchesMerged && matchesUnmergedMultiId) ? 'block' : 'none';
+                item.style.display = (matchesHorse && matchesDetection && matchesStatus && matchesSizeRatio && matchesMerged && matchesUnmergedMultiId) ? 'block' : 'none';
             });
         }
     </script>
