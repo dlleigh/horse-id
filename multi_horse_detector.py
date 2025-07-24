@@ -152,13 +152,6 @@ def main():
         previous_detections_df = pd.read_csv(OUTPUT_MANIFEST_FILE, dtype={'filename': str})
 
         if not previous_detections_df.empty:
-            # --- FIX for dtype mismatch ---
-            # Ensure the 'num_horses_detected' column is treated as a string in both
-            # DataFrames to prevent a dtype mismatch during the merge.
-            if 'num_horses_detected' in output_df.columns:
-                output_df['num_horses_detected'] = output_df['num_horses_detected'].fillna('').astype(str)
-            if 'num_horses_detected' in previous_detections_df.columns:
-                previous_detections_df['num_horses_detected'] = previous_detections_df['num_horses_detected'].fillna('').astype(str)
 
             # Merge previous results into the current dataframe based on core identification columns
             # This preserves existing data and allows us to only process new/missing rows
@@ -170,15 +163,24 @@ def main():
                                      if col in base_manifest_df.columns and col in previous_detections_df.columns]
             
             if available_merge_columns:
-                # Select only the detection-specific columns from previous detections to avoid duplicates
-                detection_columns = ['bbox_x', 'bbox_y', 'bbox_width', 'bbox_height', 'segmentation_mask']
+                # Select ALL detection-specific columns from previous detections, including num_horses_detected and size_ratio
+                detection_columns = ['num_horses_detected', 'size_ratio', 'bbox_x', 'bbox_y', 'bbox_width', 'bbox_height', 'segmentation_mask']
                 columns_to_keep = available_merge_columns + [col for col in detection_columns 
                                                            if col in previous_detections_df.columns]
                 
                 # Create a subset of previous detections with only the columns we need
                 prev_detections_subset = previous_detections_df[columns_to_keep]
                 
-                output_df = pd.merge(output_df, prev_detections_subset, on=available_merge_columns, how='left')
+                # Use combine_first to preserve existing data in base_manifest and only fill missing values
+                # First, set index to merge columns for proper alignment
+                base_indexed = output_df.set_index(available_merge_columns)
+                prev_indexed = prev_detections_subset.set_index(available_merge_columns)
+                
+                # Use combine_first to preserve base data and only add missing detection data
+                combined_indexed = base_indexed.combine_first(prev_indexed)
+                
+                # Reset index back to regular dataframe
+                output_df = combined_indexed.reset_index()
             else:
                 print("Warning: No common merge columns found. Skipping merge with previous detections.")
 
@@ -203,8 +205,16 @@ def main():
 
     print("Analyzing images for horse detection...")
     for index, row in tqdm(output_df.iterrows(), total=output_df.shape[0], desc="Processing images"):
-        # Process if 'segmentation_mask' is missing, which indicates a new or unprocessed image
-        if pd.isna(row.get('segmentation_mask')) or not row.get('segmentation_mask'):
+        # Only process if the image hasn't been analyzed yet
+        # Check for valid detection results in num_horses_detected (NONE, SINGLE, MULTIPLE)
+        current_detection = row.get('num_horses_detected', '')
+        
+        # Process if no valid detection result exists (empty, NaN, or "nan" string)
+        if (pd.isna(current_detection) or 
+            not current_detection or 
+            str(current_detection).strip() == '' or 
+            str(current_detection).lower() == 'nan' or
+            current_detection not in ['NONE', 'SINGLE', 'MULTIPLE']):
             image_path = os.path.join(IMAGE_DIR, row['filename'])
             status, ratio, bbox, mask = count_horses(image_path, model, CONFIDENCE_THRESHOLD)
 
