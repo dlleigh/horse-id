@@ -2,6 +2,7 @@ import os
 import pandas as pd
 import yaml
 import shutil
+import hashlib
 from datetime import datetime
 from PIL import Image
 
@@ -71,18 +72,35 @@ def convert_heic_to_jpg(heic_path, jpg_path):
         return False
 
 
+def generate_message_id_for_subdir(subdir_path, date_str):
+    """Generate deterministic message_id for a subdirectory."""
+    # Create a hash of the absolute path for uniqueness
+    path_hash = hashlib.md5(os.path.abspath(subdir_path).encode()).hexdigest()[:8]
+    subdir_name = os.path.basename(subdir_path)
+    safe_name = "".join(c if c.isalnum() else "_" for c in subdir_name)
+    return f"local-dir-{path_hash}-{safe_name}-{date_str}"
+
+
+def get_existing_files_for_message_id(manifest_df, message_id):
+    """Get set of original_filename values for a given message_id."""
+    if manifest_df.empty:
+        return set()
+    matching_rows = manifest_df[manifest_df['message_id'] == message_id]
+    return set(matching_rows['original_filename'].tolist())
+
+
 def main():
-    """Main function to ingest images from a local directory."""
-    print("--- Local Directory Image Ingestion ---")
+    """Main function to ingest images from subdirectories (one per horse)."""
+    print("--- Local Subdirectory Image Ingestion ---")
+    print("This script processes a directory containing subdirectories.")
+    print("Each subdirectory name will be used as the horse name.")
 
     # --- Get User Input ---
     while True:
-        source_dir = input("Enter the full path to the directory with images: ").strip()
-        if os.path.isdir(source_dir):
+        parent_dir = input("Enter the full path to the directory containing subdirectories (one per horse): ").strip()
+        if os.path.isdir(parent_dir):
             break
         print("Error: The provided path is not a valid directory. Please try again.")
-
-    horse_name = input("Enter the horse's name: ").strip()
 
     while True:
         email_date_str = input("Enter the date for these photos (YYYYMMDD): ").strip()
@@ -92,79 +110,119 @@ def main():
         except ValueError:
             print("Error: Invalid date format. Please use YYYYMMDD.")
 
-    # --- Process Images ---
+    # --- Process Subdirectories ---
     os.makedirs(DATASET_DIR, exist_ok=True)
     manifest_df = read_or_create_manifest()
 
-    # Generate a unique ID for this ingestion batch
-    timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
-    safe_horse_name = "".join(c if c.isalnum() else "_" for c in horse_name)
-    message_id = f"local-{timestamp}-{safe_horse_name}"
-
-    # Get the next canonical ID for this group of photos
-    next_id = get_next_canonical_id(manifest_df)
-
-    new_rows = []
-    image_files = [f for f in os.listdir(source_dir) if os.path.splitext(f)[1].lower() in IMAGE_EXTENSIONS]
-
-    if not image_files:
-        print("\nNo supported image files found in the directory. Exiting.")
+    # Find all subdirectories
+    subdirs = [d for d in os.listdir(parent_dir) 
+               if os.path.isdir(os.path.join(parent_dir, d)) and not d.startswith('.')]
+    
+    if not subdirs:
+        print("\nNo subdirectories found in the specified directory. Exiting.")
         return
 
-    print(f"\nFound {len(image_files)} supported images. Processing...")
-
-    for original_filename in image_files:
-        source_path = os.path.join(source_dir, original_filename)
-        base, ext = os.path.splitext(original_filename)
-        ext_lower = ext.lower()
-
-        # Define the new filename for the dataset directory
-        if ext_lower in ['.heic', '.heif']:
-            new_filename_on_disk = f"{message_id}-{base}.jpg"
+    print(f"\nFound {len(subdirs)} subdirectories to process: {', '.join(subdirs)}")
+    
+    total_new_images = 0
+    
+    for subdir_name in subdirs:
+        subdir_path = os.path.join(parent_dir, subdir_name)
+        horse_name = subdir_name
+        
+        print(f"\n--- Processing horse: {horse_name} ---")
+        
+        # Generate message_id for this subdirectory
+        message_id = generate_message_id_for_subdir(subdir_path, email_date_str)
+        
+        # Check what files already exist for this message_id
+        existing_files = get_existing_files_for_message_id(manifest_df, message_id)
+        
+        # Get all image files in this subdirectory
+        image_files = [f for f in os.listdir(subdir_path) 
+                      if os.path.splitext(f)[1].lower() in IMAGE_EXTENSIONS]
+        
+        # Filter out files that already exist in manifest
+        new_image_files = [f for f in image_files if f not in existing_files]
+        
+        if not new_image_files:
+            if image_files:
+                print(f"  All {len(image_files)} images already processed for this subdirectory. Skipping.")
+            else:
+                print(f"  No supported image files found in subdirectory.")
+            continue
+            
+        print(f"  Found {len(new_image_files)} new images to process (out of {len(image_files)} total)")
+        
+        # Get canonical ID - use existing one if message_id exists, otherwise get next available
+        existing_rows = manifest_df[manifest_df['message_id'] == message_id]
+        if not existing_rows.empty:
+            canonical_id = existing_rows['canonical_id'].iloc[0]
+            print(f"  Using existing canonical_id: {canonical_id}")
         else:
-            new_filename_on_disk = f"{message_id}-{original_filename}"
+            canonical_id = get_next_canonical_id(manifest_df)
+            print(f"  Assigned new canonical_id: {canonical_id}")
+        
+        new_rows = []
+        
+        for original_filename in new_image_files:
+            source_path = os.path.join(subdir_path, original_filename)
+            base, ext = os.path.splitext(original_filename)
+            ext_lower = ext.lower()
 
-        final_disk_path = os.path.join(DATASET_DIR, new_filename_on_disk)
+            # Define the new filename for the dataset directory
+            if ext_lower in ['.heic', '.heif']:
+                new_filename_on_disk = f"{message_id}-{base}.jpg"
+            else:
+                new_filename_on_disk = f"{message_id}-{original_filename}"
 
-        # --- Copy or Convert File ---
-        if ext_lower in ['.heic', '.heif']:
-            if not HEIC_SUPPORT:
-                continue # Skip if library not installed
-            print(f"  Converting: {original_filename} -> {new_filename_on_disk}")
-            if not convert_heic_to_jpg(source_path, final_disk_path):
-                continue # Skip if conversion fails
-        else:
-            print(f"  Copying: {original_filename} -> {new_filename_on_disk}")
-            shutil.copy2(source_path, final_disk_path)
+            final_disk_path = os.path.join(DATASET_DIR, new_filename_on_disk)
 
-        # --- Add to manifest ---
-        new_rows.append({
-            'horse_name': horse_name,
-            'email_date': email_date_str,
-            'message_id': message_id,
-            'original_filename': original_filename,
-            'filename': new_filename_on_disk,
-            'date_added': datetime.now().strftime('%Y-%m-%d'),
-            'canonical_id': next_id,
-            'original_canonical_id': next_id,
-            'last_merged_timestamp': pd.NA,
-            'size_ratio': pd.NA,
-            'num_horses_detected': '',
-            'status': ''
-        })
+            # --- Copy or Convert File ---
+            if ext_lower in ['.heic', '.heif']:
+                if not HEIC_SUPPORT:
+                    print(f"    Skipping {original_filename}: HEIC support not available")
+                    continue
+                print(f"    Converting: {original_filename} -> {new_filename_on_disk}")
+                if not convert_heic_to_jpg(source_path, final_disk_path):
+                    continue
+            else:
+                print(f"    Copying: {original_filename} -> {new_filename_on_disk}")
+                shutil.copy2(source_path, final_disk_path)
 
-    if not new_rows:
-        print("\nNo images were successfully processed. Manifest not updated.")
-        return
+            # --- Add to manifest ---
+            new_rows.append({
+                'horse_name': horse_name,
+                'email_date': email_date_str,
+                'message_id': message_id,
+                'original_filename': original_filename,
+                'filename': new_filename_on_disk,
+                'date_added': datetime.now().strftime('%Y-%m-%d'),
+                'canonical_id': canonical_id,
+                'original_canonical_id': canonical_id,
+                'last_merged_timestamp': pd.NA,
+                'size_ratio': pd.NA,
+                'num_horses_detected': '',
+                'status': ''
+            })
 
-    # --- Update and Save Manifest ---
-    new_df = pd.DataFrame(new_rows)
-    updated_manifest_df = pd.concat([manifest_df, new_df], ignore_index=True)
-    updated_manifest_df.to_csv(MANIFEST_FILE, index=False)
+        if new_rows:
+            # Update manifest with new rows for this subdirectory
+            new_df = pd.DataFrame(new_rows)
+            manifest_df = pd.concat([manifest_df, new_df], ignore_index=True)
+            total_new_images += len(new_rows)
+            print(f"    Successfully processed {len(new_rows)} images")
 
-    print(f"\nSuccess! Added {len(new_rows)} new photo entries to the manifest.")
-    print(f"All photos in this batch were assigned canonical_id: {next_id}")
-    print(f"Manifest file updated at: {MANIFEST_FILE}")
+    if total_new_images > 0:
+        # Save updated manifest
+        manifest_df.to_csv(MANIFEST_FILE, index=False)
+        print(f"\n=== SUMMARY ===")
+        print(f"Successfully added {total_new_images} new photo entries to the manifest.")
+        print(f"Manifest file updated at: {MANIFEST_FILE}")
+    else:
+        print(f"\n=== SUMMARY ===")
+        print("No new images were processed. Manifest unchanged.")
+    
     print("\nScript finished.")
 
 
