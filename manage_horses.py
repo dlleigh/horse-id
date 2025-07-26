@@ -307,7 +307,7 @@ def main():
     with tab2:
         # Canonical ID assignment
         st.markdown("**Reassign images to a different canonical ID**")
-        st.caption("⚠️ This will move selected images to a different horse identity. Use carefully!")
+        st.caption("⚠️ This will move selected images to a different horse identity and update their normalized_horse_name to match. Use carefully!")
         
         # Current canonical ID info
         col1, col2 = st.columns([1, 1])
@@ -317,29 +317,42 @@ def main():
             st.markdown(f"**Current Horse:** {horse_name}")
         
         with col2:
-            # Get all available canonical IDs for dropdown
-            all_canonical_ids = sorted(df['canonical_id'].dropna().unique())
-            
-            target_canonical_id = st.selectbox(
+            # Text input for target canonical ID
+            target_canonical_id_input = st.text_input(
                 "Target Canonical ID:",
-                options=all_canonical_ids,
-                index=all_canonical_ids.index(selected_canonical_id) if selected_canonical_id in all_canonical_ids else 0
+                help="Enter the canonical ID to assign selected images to"
             )
             
-            # Show target horse name if different
-            if target_canonical_id != selected_canonical_id:
-                target_horse_rows = df[df['canonical_id'] == target_canonical_id]
-                if not target_horse_rows.empty:
-                    target_horse_name = target_horse_rows['horse_name'].iloc[0]
-                    st.markdown(f"**Target Horse:** {target_horse_name}")
-                else:
-                    st.warning("No images found for target canonical ID")
+            # Validate and convert input
+            target_canonical_id = None
+            target_horse_name = None
+            input_error = None
+            
+            if target_canonical_id_input.strip():
+                try:
+                    target_canonical_id = int(target_canonical_id_input.strip())
+                    
+                    # Check if this canonical ID exists
+                    target_horse_rows = df[df['canonical_id'] == target_canonical_id]
+                    if not target_horse_rows.empty:
+                        target_horse_name = target_horse_rows['horse_name'].iloc[0]
+                        if target_canonical_id != selected_canonical_id:
+                            st.markdown(f"**Target Horse:** {target_horse_name}")
+                    else:
+                        input_error = f"Canonical ID {target_canonical_id} does not exist"
+                        st.error(input_error)
+                        target_canonical_id = None
+                        
+                except ValueError:
+                    input_error = "Please enter a valid number"
+                    st.error(input_error)
+                    target_canonical_id = None
         
         # Canonical ID action buttons
-        col1, col2 = st.columns([1, 1])
+        col1, col2, col3 = st.columns([1, 1, 1])
         
         with col1:
-            reassign_all_disabled = bool(target_canonical_id == selected_canonical_id)
+            reassign_all_disabled = bool(target_canonical_id is None or target_canonical_id == selected_canonical_id)
             if st.button("Reassign All Images", type="secondary", disabled=reassign_all_disabled, use_container_width=True):
                 try:
                     # Read fresh data to avoid conflicts
@@ -350,11 +363,30 @@ def main():
                         'filename': str
                     })
                     
+                    # Get target normalized_horse_name from the target canonical_id
+                    target_rows = fresh_df[fresh_df['canonical_id'] == target_canonical_id]
+                    if not target_rows.empty:
+                        if 'normalized_horse_name' in fresh_df.columns:
+                            target_normalized_name = target_rows['normalized_horse_name'].iloc[0]
+                        else:
+                            target_normalized_name = target_rows['horse_name'].iloc[0]
+                    else:
+                        st.error(f"No rows found for target canonical ID {target_canonical_id}")
+                        return
+                    
                     # Update canonical_id for matching canonical_id
                     mask = fresh_df['canonical_id'] == selected_canonical_id
                     affected_count = mask.sum()
                     
                     fresh_df.loc[mask, 'canonical_id'] = target_canonical_id
+                    
+                    # Update normalized_horse_name to match target canonical_id
+                    if 'normalized_horse_name' in fresh_df.columns:
+                        fresh_df.loc[mask, 'normalized_horse_name'] = target_normalized_name
+                        updated_field = 'normalized_horse_name'
+                    else:
+                        fresh_df.loc[mask, 'horse_name'] = target_normalized_name
+                        updated_field = 'horse_name'
                     
                     # Save back to file
                     fresh_df.to_csv(manifest_file_path, index=False)
@@ -362,7 +394,7 @@ def main():
                     # Clear cache to reflect changes
                     st.cache_data.clear()
                     
-                    st.success(f"✅ Reassigned {affected_count} images to canonical ID {target_canonical_id}")
+                    st.success(f"✅ Reassigned {affected_count} images to canonical ID {target_canonical_id} and updated {updated_field} to '{target_normalized_name}'")
                     st.rerun()
                     
                 except Exception as e:
@@ -370,7 +402,7 @@ def main():
         
         with col2:
             selected_displayed_images = st.session_state.selected_images & set(display_images['filename'].tolist())
-            reassign_selected_disabled = bool(len(selected_displayed_images) == 0 or target_canonical_id == selected_canonical_id)
+            reassign_selected_disabled = bool(len(selected_displayed_images) == 0 or target_canonical_id is None or target_canonical_id == selected_canonical_id)
             
             if st.button("Reassign Selected Images", type="primary", disabled=reassign_selected_disabled, use_container_width=True):
                 try:
@@ -382,11 +414,30 @@ def main():
                         'filename': str
                     })
                     
-                    # Update canonical_id for selected images
+                    # Get target normalized_horse_name from the target canonical_id
+                    target_rows = fresh_df[fresh_df['canonical_id'] == target_canonical_id]
+                    if not target_rows.empty:
+                        if 'normalized_horse_name' in fresh_df.columns:
+                            target_normalized_name = target_rows['normalized_horse_name'].iloc[0]
+                        else:
+                            target_normalized_name = target_rows['horse_name'].iloc[0]
+                    else:
+                        st.error(f"No rows found for target canonical ID {target_canonical_id}")
+                        return
+                    
+                    # Update selected images
                     mask = fresh_df['filename'].isin(selected_displayed_images)
                     affected_count = mask.sum()
                     
                     fresh_df.loc[mask, 'canonical_id'] = target_canonical_id
+                    
+                    # Update normalized_horse_name to match target canonical_id
+                    if 'normalized_horse_name' in fresh_df.columns:
+                        fresh_df.loc[mask, 'normalized_horse_name'] = target_normalized_name
+                        updated_field = 'normalized_horse_name'
+                    else:
+                        fresh_df.loc[mask, 'horse_name'] = target_normalized_name
+                        updated_field = 'horse_name'
                     
                     # Save back to file
                     fresh_df.to_csv(manifest_file_path, index=False)
@@ -397,16 +448,57 @@ def main():
                     # Clear selection after successful update
                     st.session_state.selected_images = set()
                     
-                    st.success(f"✅ Reassigned {affected_count} selected images to canonical ID {target_canonical_id}")
+                    st.success(f"✅ Reassigned {affected_count} selected images to canonical ID {target_canonical_id} and updated {updated_field} to '{target_normalized_name}'")
                     st.rerun()
                     
                 except Exception as e:
                     st.error(f"Error reassigning canonical ID: {e}")
+        
+        with col3:
+            selected_displayed_images = st.session_state.selected_images & set(display_images['filename'].tolist())
+            create_new_disabled = bool(len(selected_displayed_images) == 0)
+            
+            if st.button("Create New Canonical ID", type="primary", disabled=create_new_disabled, use_container_width=True):
+                try:
+                    # Read fresh data to avoid conflicts
+                    fresh_df = pd.read_csv(manifest_file_path, dtype={
+                        'message_id': str,
+                        'canonical_id': 'Int64',
+                        'original_canonical_id': 'Int64',
+                        'filename': str
+                    })
+                    
+                    # Create new canonical_id (use max + 1)
+                    new_canonical_id = fresh_df['canonical_id'].max() + 1
+                    
+                    # Update selected images with new canonical_id
+                    mask = fresh_df['filename'].isin(selected_displayed_images)
+                    affected_count = mask.sum()
+                    
+                    fresh_df.loc[mask, 'canonical_id'] = new_canonical_id
+                    
+                    # Keep the existing normalized_horse_name (or horse_name) unchanged
+                    # This allows the user to keep the same name with a new canonical_id
+                    
+                    # Save back to file
+                    fresh_df.to_csv(manifest_file_path, index=False)
+                    
+                    # Clear cache to reflect changes
+                    st.cache_data.clear()
+                    
+                    # Clear selection after successful update
+                    st.session_state.selected_images = set()
+                    
+                    st.success(f"✅ Created new canonical ID {new_canonical_id} for {affected_count} selected images")
+                    st.rerun()
+                    
+                except Exception as e:
+                    st.error(f"Error creating new canonical ID: {e}")
     
     with tab3:
         # Horse name management
-        st.markdown("**Update normalized horse name**")
-        st.caption("⚠️ This changes the horse name used for identification. Use carefully!")
+        st.markdown("**Update normalized horse name for all images with this canonical ID**")
+        st.caption("⚠️ This changes the horse name for ALL images with the current canonical ID. The canonical ID will not change.")
         
         # Current name info
         col1, col2 = st.columns([1, 1])
@@ -433,13 +525,10 @@ def main():
             if new_normalized_name != current_normalized_name:
                 st.markdown(f"**Preview:** {current_normalized_name} → {new_normalized_name}")
         
-        # Horse name action buttons
-        col1, col2 = st.columns([1, 1])
+        # Horse name action buttons - only one button now
+        name_change_disabled = bool(new_normalized_name == current_normalized_name or not new_normalized_name.strip())
         
-        with col1:
-            name_change_disabled = bool(new_normalized_name == current_normalized_name or not new_normalized_name.strip())
-            
-            if st.button("Update All Images", type="secondary", disabled=name_change_disabled, use_container_width=True):
+        if st.button("Update All Images with this Canonical ID", type="primary", disabled=name_change_disabled, use_container_width=True):
                 try:
                     # Read fresh data to avoid conflicts
                     fresh_df = pd.read_csv(manifest_file_path, dtype={
@@ -463,42 +552,6 @@ def main():
                     st.cache_data.clear()
                     
                     st.success(f"✅ Updated {target_column} to '{new_normalized_name.strip()}' for {affected_count} images")
-                    st.rerun()
-                    
-                except Exception as e:
-                    st.error(f"Error updating horse name: {e}")
-        
-        with col2:
-            selected_displayed_images = st.session_state.selected_images & set(display_images['filename'].tolist())
-            name_selected_disabled = bool(len(selected_displayed_images) == 0 or new_normalized_name == current_normalized_name or not new_normalized_name.strip())
-            
-            if st.button("Update Selected Images", type="primary", disabled=name_selected_disabled, use_container_width=True):
-                try:
-                    # Read fresh data to avoid conflicts
-                    fresh_df = pd.read_csv(manifest_file_path, dtype={
-                        'message_id': str,
-                        'canonical_id': 'Int64',
-                        'original_canonical_id': 'Int64',
-                        'filename': str
-                    })
-                    
-                    # Update normalized_horse_name for selected images
-                    mask = fresh_df['filename'].isin(selected_displayed_images)
-                    affected_count = mask.sum()
-                    
-                    target_column = 'normalized_horse_name' if 'normalized_horse_name' in fresh_df.columns else 'horse_name'
-                    fresh_df.loc[mask, target_column] = new_normalized_name.strip()
-                    
-                    # Save back to file
-                    fresh_df.to_csv(manifest_file_path, index=False)
-                    
-                    # Clear cache to reflect changes
-                    st.cache_data.clear()
-                    
-                    # Clear selection after successful update
-                    st.session_state.selected_images = set()
-                    
-                    st.success(f"✅ Updated {target_column} to '{new_normalized_name.strip()}' for {affected_count} selected images")
                     st.rerun()
                     
                 except Exception as e:
