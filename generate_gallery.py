@@ -27,20 +27,23 @@ def create_html_gallery(df, output_path, manifest_display_name, current_manifest
     merged_horse_names = set()
     if 'canonical_id' in df.columns and 'original_canonical_id' in df.columns:
         # Ensure IDs are comparable, handling potential NaNs or different types
-        df_copy = df[['horse_name', 'canonical_id', 'original_canonical_id']].copy()
+        name_column = 'normalized_horse_name' if 'normalized_horse_name' in df.columns else 'horse_name'
+        df_copy = df[[name_column, 'canonical_id', 'original_canonical_id']].copy()
         df_copy['canonical_id'] = pd.to_numeric(df_copy['canonical_id'], errors='coerce')
         df_copy['original_canonical_id'] = pd.to_numeric(df_copy['original_canonical_id'], errors='coerce')
         
         merged_rows = df_copy[df_copy['canonical_id'] != df_copy['original_canonical_id']]
-        merged_horse_names.update(merged_rows['horse_name'].unique())
+        merged_horse_names.update(merged_rows[name_column].unique())
     else:
         print("Warning: 'canonical_id' or 'original_canonical_id' column not found. 'Show Merged' filter may not work.")
 
     unmerged_multi_id_horse_names = set()
-    if 'canonical_id' in df.columns and 'horse_name' in df.columns:
-        for name, group in df.groupby('horse_name'):
-            if group['canonical_id'].nunique() > 1:
-                unmerged_multi_id_horse_names.add(name)
+    if 'canonical_id' in df.columns:
+        name_column = 'normalized_horse_name' if 'normalized_horse_name' in df.columns else 'horse_name'
+        if name_column in df.columns:
+            for name, group in df.groupby(name_column):
+                if group['canonical_id'].nunique() > 1:
+                    unmerged_multi_id_horse_names.add(name)
     else:
         print("Warning: 'canonical_id' or 'horse_name' column not found. 'Show Unmerged (Multiple IDs)' filter may not work.")
 
@@ -177,7 +180,8 @@ def create_html_gallery(df, output_path, manifest_display_name, current_manifest
     """
 
     # --- Generate Filter Dropdown ---
-    unique_names = sorted(df['horse_name'].unique())
+    name_column = 'normalized_horse_name' if 'normalized_horse_name' in df.columns else 'horse_name'
+    unique_names = sorted(df[name_column].unique())
     for name in unique_names:
         safe_name = html.escape(name)
         html_content += f'<option value="{safe_name}">{safe_name}</option>'
@@ -229,13 +233,14 @@ def create_html_gallery(df, output_path, manifest_display_name, current_manifest
             # Fallback for path errors
             relative_image_path = ""
             
-        horse_name_safe = html.escape(row['horse_name'])
+        name_column = 'normalized_horse_name' if 'normalized_horse_name' in df.columns else 'horse_name'
+        horse_name_safe = html.escape(row[name_column])
         filename_safe = html.escape(row['filename'])
         detection_status = row.get('num_horses_detected', 'N/A')
         size_ratio_val = row.get('size_ratio', 'N/A')
         original_canonical_id_val = row.get('original_canonical_id', 'N/A')
-        is_merged_flag = str(row['horse_name'] in merged_horse_names).lower()
-        has_multiple_canonical_ids_flag = str(row['horse_name'] in unmerged_multi_id_horse_names).lower()
+        is_merged_flag = str(row[name_column] in merged_horse_names).lower()
+        has_multiple_canonical_ids_flag = str(row[name_column] in unmerged_multi_id_horse_names).lower()
 
         # --- Date Formatting ---
         try:
@@ -587,7 +592,8 @@ def main():
             continue
 
         # Sort the dataframe for a consistent gallery order
-        df_sorted = df.sort_values(by=['horse_name', 'canonical_id', 'filename']).reset_index(drop=True)
+        name_column = 'normalized_horse_name' if 'normalized_horse_name' in df.columns else 'horse_name'
+        df_sorted = df.sort_values(by=[name_column, 'canonical_id', 'filename']).reset_index(drop=True)
         create_html_gallery(df_sorted, output_html_path, options["display"], key, manifest_options)
 
 
