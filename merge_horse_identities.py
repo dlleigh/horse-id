@@ -12,6 +12,7 @@ from itertools import combinations
 from collections import defaultdict
 import torchvision.transforms as T
 import re
+import sys
 
 from wildlife_tools.features import DeepFeatures
 from wildlife_tools.similarity import CosineSimilarity
@@ -381,6 +382,43 @@ def find_connected_components(graph):
             components.append(component)
     return components
 
+def validate_canonical_id_consistency(df):
+    """
+    Validate that all images with the same canonical_id have the same normalized_horse_name.
+    This is a critical data integrity rule for the system.
+    
+    Args:
+        df (pandas.DataFrame): The manifest dataframe to validate
+        
+    Returns:
+        bool: True if validation passes, False if violations found
+    """
+    print("\n=== Validating canonical_id consistency ===")
+    
+    # Group by canonical_id and check for multiple normalized_horse_name values
+    violations = []
+    canonical_groups = df.groupby('canonical_id')
+    
+    for canonical_id, group in canonical_groups:
+        unique_names = group['normalized_horse_name'].unique()
+        if len(unique_names) > 1:
+            violations.append({
+                'canonical_id': canonical_id,
+                'names': list(unique_names),
+                'count': len(group)
+            })
+    
+    if violations:
+        print(f"❌ VALIDATION FAILED: Found {len(violations)} canonical IDs with inconsistent normalized_horse_name values:")
+        for violation in violations:
+            print(f"  - Canonical ID {violation['canonical_id']} ({violation['count']} images) has names: {violation['names']}")
+        print("\nThis violates the critical data integrity rule: All images with the same canonical_id MUST have the same normalized_horse_name.")
+        print("Please fix these inconsistencies before proceeding.")
+        return False
+    else:
+        print("✅ Validation passed: All canonical IDs have consistent normalized_horse_name values")
+        return True
+
 def main():
     """Merges horse identities in the manifest based on photo similarity."""
     print("Starting horse identity merging process...")
@@ -589,6 +627,12 @@ def main():
             writer = csv.DictWriter(f, fieldnames=merge_results_headers)
             writer.writeheader()
 
+    # Validate the final output before saving
+    if not validate_canonical_id_consistency(output_df):
+        print("\n❌ Cannot save merged manifest due to validation errors.")
+        print("Please review the merge process and fix any inconsistencies.")
+        sys.exit(1)
+    
     # Save the final, merged manifest
     print(f"\nSaving merged manifest to: {OUTPUT_MANIFEST_FILE}")
     output_df.to_csv(OUTPUT_MANIFEST_FILE, index=False)

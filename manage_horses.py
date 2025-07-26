@@ -4,6 +4,7 @@ import os
 import yaml
 from PIL import Image
 from datetime import datetime
+import sys
 
 # --- Configuration Loading ---
 CONFIG_FILE = 'config.yml'
@@ -47,6 +48,63 @@ def get_image_dir():
     config = load_config()
     DATA_ROOT = os.path.expanduser(config['paths']['data_root'])
     return config['paths']['dataset_dir'].format(data_root=DATA_ROOT)
+
+def validate_canonical_id_consistency(df):
+    """
+    Validate that all images with the same canonical_id have the same normalized_horse_name.
+    This is a critical data integrity rule for the system.
+    
+    Args:
+        df (pandas.DataFrame): The manifest dataframe to validate
+        
+    Returns:
+        tuple: (bool, list) - (is_valid, list_of_violations)
+    """
+    violations = []
+    canonical_groups = df.groupby('canonical_id')
+    
+    for canonical_id, group in canonical_groups:
+        # Check normalized_horse_name if it exists, otherwise check horse_name
+        name_column = 'normalized_horse_name' if 'normalized_horse_name' in df.columns else 'horse_name'
+        unique_names = group[name_column].unique()
+        if len(unique_names) > 1:
+            violations.append({
+                'canonical_id': canonical_id,
+                'names': list(unique_names),
+                'count': len(group),
+                'column': name_column
+            })
+    
+    return len(violations) == 0, violations
+
+def save_manifest_with_validation(df, manifest_file_path):
+    """
+    Save the manifest file after validating canonical_id consistency.
+    Shows error in Streamlit if validation fails.
+    
+    Args:
+        df (pandas.DataFrame): The dataframe to save
+        manifest_file_path (str): Path to save the file
+        
+    Returns:
+        bool: True if saved successfully, False if validation failed
+    """
+    is_valid, violations = validate_canonical_id_consistency(df)
+    
+    if not is_valid:
+        st.error("❌ **Data Integrity Violation Detected!**")
+        st.error("All images with the same canonical_id MUST have the same normalized_horse_name.")
+        st.error("The following violations were found:")
+        
+        for violation in violations:
+            st.error(f"- Canonical ID {violation['canonical_id']} ({violation['count']} images) has {violation['column']} values: {violation['names']}")
+        
+        st.error("**Cannot save changes.** Please fix these inconsistencies first.")
+        return False
+    
+    # Validation passed, save the file
+    df.to_csv(manifest_file_path, index=False)
+    return True
 
 def get_horse_list(df):
     """Get list of horses grouped by canonical_id with status info."""
@@ -256,11 +314,12 @@ def main():
                     
                     fresh_df.loc[mask, 'status'] = new_status
                     
-                    # Save back to file
-                    fresh_df.to_csv(manifest_file_path, index=False)
-                    
-                    # Clear cache to reflect changes
-                    st.cache_data.clear()
+                    # Save back to file with validation
+                    if save_manifest_with_validation(fresh_df, manifest_file_path):
+                        # Clear cache to reflect changes
+                        st.cache_data.clear()
+                    else:
+                        return  # Stop execution if validation fails
                     
                     st.success(f"✅ Updated status to '{new_status if new_status else 'Active'}' for {affected_count} images")
                     st.rerun()
@@ -289,11 +348,12 @@ def main():
                     
                     fresh_df.loc[mask, 'status'] = new_status
                     
-                    # Save back to file
-                    fresh_df.to_csv(manifest_file_path, index=False)
-                    
-                    # Clear cache to reflect changes
-                    st.cache_data.clear()
+                    # Save back to file with validation
+                    if save_manifest_with_validation(fresh_df, manifest_file_path):
+                        # Clear cache to reflect changes
+                        st.cache_data.clear()
+                    else:
+                        return  # Stop execution if validation fails
                     
                     # Clear selection after successful update
                     st.session_state.selected_images = set()
@@ -388,11 +448,12 @@ def main():
                         fresh_df.loc[mask, 'horse_name'] = target_normalized_name
                         updated_field = 'horse_name'
                     
-                    # Save back to file
-                    fresh_df.to_csv(manifest_file_path, index=False)
-                    
-                    # Clear cache to reflect changes
-                    st.cache_data.clear()
+                    # Save back to file with validation
+                    if save_manifest_with_validation(fresh_df, manifest_file_path):
+                        # Clear cache to reflect changes
+                        st.cache_data.clear()
+                    else:
+                        return  # Stop execution if validation fails
                     
                     st.success(f"✅ Reassigned {affected_count} images to canonical ID {target_canonical_id} and updated {updated_field} to '{target_normalized_name}'")
                     st.rerun()
@@ -439,11 +500,12 @@ def main():
                         fresh_df.loc[mask, 'horse_name'] = target_normalized_name
                         updated_field = 'horse_name'
                     
-                    # Save back to file
-                    fresh_df.to_csv(manifest_file_path, index=False)
-                    
-                    # Clear cache to reflect changes
-                    st.cache_data.clear()
+                    # Save back to file with validation
+                    if save_manifest_with_validation(fresh_df, manifest_file_path):
+                        # Clear cache to reflect changes
+                        st.cache_data.clear()
+                    else:
+                        return  # Stop execution if validation fails
                     
                     # Clear selection after successful update
                     st.session_state.selected_images = set()
@@ -480,11 +542,12 @@ def main():
                     # Keep the existing normalized_horse_name (or horse_name) unchanged
                     # This allows the user to keep the same name with a new canonical_id
                     
-                    # Save back to file
-                    fresh_df.to_csv(manifest_file_path, index=False)
-                    
-                    # Clear cache to reflect changes
-                    st.cache_data.clear()
+                    # Save back to file with validation
+                    if save_manifest_with_validation(fresh_df, manifest_file_path):
+                        # Clear cache to reflect changes
+                        st.cache_data.clear()
+                    else:
+                        return  # Stop execution if validation fails
                     
                     # Clear selection after successful update
                     st.session_state.selected_images = set()
@@ -545,11 +608,12 @@ def main():
                     target_column = 'normalized_horse_name' if 'normalized_horse_name' in fresh_df.columns else 'horse_name'
                     fresh_df.loc[mask, target_column] = new_normalized_name.strip()
                     
-                    # Save back to file
-                    fresh_df.to_csv(manifest_file_path, index=False)
-                    
-                    # Clear cache to reflect changes
-                    st.cache_data.clear()
+                    # Save back to file with validation
+                    if save_manifest_with_validation(fresh_df, manifest_file_path):
+                        # Clear cache to reflect changes
+                        st.cache_data.clear()
+                    else:
+                        return  # Stop execution if validation fails
                     
                     st.success(f"✅ Updated {target_column} to '{new_normalized_name.strip()}' for {affected_count} images")
                     st.rerun()

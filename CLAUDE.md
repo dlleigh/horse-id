@@ -98,3 +98,7 @@ docker build --platform linux/amd64 -f Dockerfile.responder -t horse-id-responde
 - Calibration files (`.pkl`) are required for similarity matching and are created by the Jupyter notebook
 - The system is designed to handle incremental processing - scripts can be re-run to process new data
 - All file paths use `{data_root}` placeholder pattern for environment-agnostic configuration
+
+## Data Integrity Rules
+
+- This is a critical data integrity rule for the system: All images with the same canonical_id MUST have the same normalized_horse_name.
