@@ -34,41 +34,34 @@ from horse_detection_lib import (
 def count_horses(image_path, model, confidence_threshold):
     """
     Analyzes an image to determine the number of horses detected using improved logic.
-    Returns a tuple: (status, ratio, largest_bbox, largest_mask_str).
-    - status: "NONE", "SINGLE", or "MULTIPLE".
-    - ratio: Ratio of the largest horse area to the next largest, or NaN.
-    - largest_bbox: Pixel coordinates [x, y, width, height] of the largest horse, or None.
-    - largest_mask_str: Custom string representation of the largest horse's segmentation mask polygon, or None.
+    Returns only the horse detection status: "NONE", "SINGLE", or "MULTIPLE".
     
-    Improved logic considers:
-    1. Area ratios (original logic)
-    2. Overlap/occlusion analysis
-    3. Position relative to image center
+    Note: Segmentation and bounding box data is no longer returned as it was found
+    to hurt performance in README_MASKING_ANALYSIS.md and is not used for reprocessing.
     """
-    default_return = "NONE", float('nan'), None, None
     if not os.path.exists(image_path):
         print(f"Warning: Image not found at {image_path}, marking as NONE.")
-        return default_return
+        return "NONE"
 
     try:
         # verbose=False suppresses the console output from YOLO
         results = model(image_path, conf=confidence_threshold, verbose=False)
     except Exception as e:
         print(f"Error processing {image_path}: {e}")
-        return default_return
+        return "NONE"
 
     # Process results
     result = results[0]
     if result.masks is None or len(result.masks) == 0:
-        return default_return
+        return "NONE"
 
     # In COCO dataset, the class ID for 'horse' is 17
     horse_indices = np.where(result.boxes.cls.cpu().numpy() == 17)[0]
 
     if len(horse_indices) == 0:
-        return default_return
+        return "NONE"
 
-    # Get image dimensions for pixel coordinate conversion
+    # Get image dimensions
     img_height, img_width = result.orig_shape
     
     # Filter detections to only include horses
@@ -78,58 +71,12 @@ def count_horses(image_path, model, confidence_threshold):
     # Calculate areas from bounding boxes (xywh format is convenient here)
     areas = (horse_boxes.xywh[:, 2] * horse_boxes.xywh[:, 3]).cpu().numpy()
     
-    # Use depth-aware subject identification instead of just largest area
-    subject_idx_in_horses = identify_subject_horse(horse_boxes, horse_masks, horse_indices, areas, img_width, img_height)
-    subject_original_idx = horse_indices[subject_idx_in_horses]
-    
-    # Get bounding box in normalized xywh format (x_center, y_center, width, height)
-    xywhn = result.boxes.xywhn[subject_original_idx].cpu().numpy().flatten()
-    x_center, y_center, width, height = xywhn
-
-    # Convert normalized coordinates to pixel coordinates
-    # Convert center x,y to top-left x,y and scale to pixel coordinates
-    x_pixel = int((x_center - (width / 2)) * img_width)
-    y_pixel = int((y_center - (height / 2)) * img_height)
-    width_pixel = int(width * img_width)
-    height_pixel = int(height * img_height)
-    
-    subject_bbox_xywh = [x_pixel, y_pixel, width_pixel, height_pixel]
-    subject_mask_xy = horse_masks.xy[subject_idx_in_horses]
-    # Create a comma-free string format to avoid quoting issues in CSV.
-    # Format: "x1 y1;x2 y2;..." for a single polygon.
-    points_as_strings = [f"{point[0]} {point[1]}" for point in subject_mask_xy.tolist()]
-    subject_mask_str = ";".join(points_as_strings)
-
-    # Use shared library for classification
-    classification, calculated_size_ratio, subject_idx_final, analysis = classify_horse_detection(
+    # Use shared library for classification - only need the classification result
+    classification, _, _, _ = classify_horse_detection(
         horse_boxes, horse_masks, horse_indices, areas, img_width, img_height
     )
     
-    # Ensure we're using the correct subject horse for bbox/mask output
-    if classification == "SINGLE" and len(horse_indices) == 1:
-        # Single horse case - bbox and mask already set correctly above
-        return classification, calculated_size_ratio, subject_bbox_xywh, subject_mask_str
-    else:
-        # Multiple horse case - use the subject identified by the library
-        subject_idx_in_horses = subject_idx_final
-        subject_original_idx = horse_indices[subject_idx_in_horses]
-        
-        # Get bounding box in normalized xywh format (x_center, y_center, width, height)
-        xywhn = result.boxes.xywhn[subject_original_idx].cpu().numpy().flatten()
-        x_center, y_center, width, height = xywhn
-
-        # Convert normalized coordinates to pixel coordinates
-        x_pixel = int((x_center - (width / 2)) * img_width)
-        y_pixel = int((y_center - (height / 2)) * img_height)
-        width_pixel = int(width * img_width)
-        height_pixel = int(height * img_height)
-        
-        subject_bbox_xywh = [x_pixel, y_pixel, width_pixel, height_pixel]
-        subject_mask_xy = horse_masks.xy[subject_idx_in_horses]
-        points_as_strings = [f"{point[0]} {point[1]}" for point in subject_mask_xy.tolist()]
-        subject_mask_str = ";".join(points_as_strings)
-        
-        return classification, calculated_size_ratio, subject_bbox_xywh, subject_mask_str
+    return classification
 
 def main():
     """Updates the manifest file with horse detection information."""
@@ -163,8 +110,8 @@ def main():
                                      if col in base_manifest_df.columns and col in previous_detections_df.columns]
             
             if available_merge_columns:
-                # Select ALL detection-specific columns from previous detections, including num_horses_detected and size_ratio
-                detection_columns = ['num_horses_detected', 'size_ratio', 'bbox_x', 'bbox_y', 'bbox_width', 'bbox_height', 'segmentation_mask']
+                # Select detection-specific column from previous detections
+                detection_columns = ['num_horses_detected']
                 columns_to_keep = available_merge_columns + [col for col in detection_columns 
                                                            if col in previous_detections_df.columns]
                 
@@ -184,24 +131,9 @@ def main():
             else:
                 print("Warning: No common merge columns found. Skipping merge with previous detections.")
 
-    # Initialize new columns if they don't exist
-    new_cols = {
-        'num_horses_detected': '',
-        'size_ratio': pd.NA,
-        'bbox_x': pd.NA,
-        'bbox_y': pd.NA,
-        'bbox_width': pd.NA,
-        'bbox_height': pd.NA,
-        'segmentation_mask': ''
-    }
-    for col, default_val in new_cols.items():
-        if col not in output_df.columns:
-            output_df[col] = default_val
-
-    # Ensure correct types for columns
-    output_df['size_ratio'] = pd.to_numeric(output_df['size_ratio'], errors='coerce')
-    for col in ['bbox_x', 'bbox_y', 'bbox_width', 'bbox_height']:
-        output_df[col] = pd.to_numeric(output_df[col], errors='coerce')
+    # Initialize new column if it doesn't exist
+    if 'num_horses_detected' not in output_df.columns:
+        output_df['num_horses_detected'] = ''
 
     print("Analyzing images for horse detection...")
     for index, row in tqdm(output_df.iterrows(), total=output_df.shape[0], desc="Processing images"):
@@ -216,17 +148,8 @@ def main():
             str(current_detection).lower() == 'nan' or
             current_detection not in ['NONE', 'SINGLE', 'MULTIPLE']):
             image_path = os.path.join(IMAGE_DIR, row['filename'])
-            status, ratio, bbox, mask = count_horses(image_path, model, CONFIDENCE_THRESHOLD)
-
+            status = count_horses(image_path, model, CONFIDENCE_THRESHOLD)
             output_df.loc[index, 'num_horses_detected'] = status
-            output_df.loc[index, 'size_ratio'] = ratio
-            output_df.loc[index, 'segmentation_mask'] = mask
-
-            if bbox:
-                output_df.loc[index, 'bbox_x'] = bbox[0]
-                output_df.loc[index, 'bbox_y'] = bbox[1]
-                output_df.loc[index, 'bbox_width'] = bbox[2]
-                output_df.loc[index, 'bbox_height'] = bbox[3]
 
     # Save the updated DataFrame to the new CSV file
     os.makedirs(os.path.dirname(OUTPUT_MANIFEST_FILE), exist_ok=True)
@@ -240,9 +163,9 @@ def main():
     for status, count in counts.items():
         print(f"  - {status}: {count}")
     
-    multiple_horse_df = output_df[output_df['num_horses_detected'] == 'MULTIPLE']
-    if not multiple_horse_df.empty:
-        print(f"  - Average size_ratio (for MULTIPLE detections): {multiple_horse_df['size_ratio'].mean():.2f}")
+    # Summary statistics (size_ratio no longer available)
+    if 'MULTIPLE' in counts:
+        print(f"  - Multiple horse detections: {counts['MULTIPLE']}")
     print("-------------------------")
 
 if __name__ == '__main__':
