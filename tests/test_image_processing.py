@@ -11,7 +11,9 @@ from PIL import Image
 # Add the parent directory to the path to import the modules
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from horse_id import load_config, setup_paths, download_from_s3, Horses, process_image_for_identification, format_horse_with_herd
+# Import horse_id functions but use config_utils for config loading in tests  
+from horse_id import setup_paths, download_from_s3, Horses, process_image_for_identification, format_horse_with_herd
+import config_utils
 
 
 
@@ -26,26 +28,26 @@ class TestLoadConfig:
             'similarity': {'inference_threshold': 0.6}
         }
         
-        with patch('horse_id.open', mock_open(read_data='test')):
-            with patch('horse_id.yaml.safe_load', return_value=mock_config):
-                with patch('horse_id.os.path.exists', return_value=True):
-                    config = load_config()
+        with patch('config_utils.os.path.exists', return_value=True):
+            with patch('config_utils.open', mock_open(read_data='test')):
+                with patch('config_utils.yaml.safe_load', return_value=mock_config):
+                    config = config_utils.load_config()
         
         assert config == mock_config
     
     def test_load_config_file_not_found(self):
         """Test config loading with missing file."""
-        with patch('horse_id.os.path.exists', return_value=False):
-            with pytest.raises(FileNotFoundError, match='Configuration file.*not found'):
-                load_config()
+        with patch('config_utils.os.path.exists', return_value=False):
+            with pytest.raises(FileNotFoundError, match='Base configuration file not found'):
+                config_utils.load_config()
     
     def test_load_config_yaml_error(self):
         """Test config loading with YAML parsing error."""
-        with patch('horse_id.open', mock_open(read_data='invalid: yaml: content:')):
-            with patch('horse_id.os.path.exists', return_value=True):
-                with patch('horse_id.yaml.safe_load', side_effect=Exception('YAML error')):
+        with patch('config_utils.open', mock_open(read_data='invalid: yaml: content:')):
+            with patch('config_utils.os.path.exists', return_value=True):
+                with patch('config_utils.yaml.safe_load', side_effect=Exception('YAML error')):
                     with pytest.raises(Exception, match='YAML error'):
-                        load_config()
+                        config_utils.load_config()
 
 
 class TestSetupPaths:
@@ -65,8 +67,9 @@ class TestSetupPaths:
             }
         }
         
-        with patch('horse_id.os.path.expanduser', side_effect=lambda x: x):
-            manifest_file, features_dir, horse_herds_file, bucket_name = setup_paths(config)
+        with patch('config_utils.os.path.expanduser', side_effect=lambda x: x):
+            with patch('config_utils.get_data_root', return_value='/tmp/test'):
+                manifest_file, features_dir, horse_herds_file, bucket_name = setup_paths(config)
         
         assert manifest_file == '/tmp/test/merged_manifest.csv'
         assert features_dir == '/tmp/test/features'
@@ -88,8 +91,9 @@ class TestSetupPaths:
         }
         
         with patch.dict(os.environ, {'HORSE_ID_DATA_ROOT': '/env/override'}):
-            with patch('horse_id.os.path.expanduser', side_effect=lambda x: x):
-                manifest_file, features_dir, horse_herds_file, bucket_name = setup_paths(config)
+            with patch('config_utils.os.path.expanduser', side_effect=lambda x: x):
+                with patch('config_utils.get_data_root', return_value='/env/override'):
+                    manifest_file, features_dir, horse_herds_file, bucket_name = setup_paths(config)
         
         assert manifest_file == '/env/override/merged_manifest.csv'
         assert features_dir == '/env/override/features'
@@ -135,7 +139,7 @@ class TestSetupPaths:
             }
         }
         
-        with patch('horse_id.os.path.expanduser', side_effect=Exception('Expansion error')):
+        with patch('config_utils.get_data_root', side_effect=Exception('Expansion error')):
             with pytest.raises(RuntimeError, match='Error setting up paths'):
                 setup_paths(config)
 
@@ -147,7 +151,7 @@ class TestDownloadFromS3:
         """Test download when file already exists locally."""
         mock_client = Mock()
         
-        with patch('horse_id.os.path.exists', return_value=True):
+        with patch('os.path.exists', return_value=True):
             result = download_from_s3(mock_client, 'test-bucket', 'test-key', '/tmp/test-file')
         
         assert result is True
@@ -158,9 +162,9 @@ class TestDownloadFromS3:
         mock_client = Mock()
         mock_client.download_file.return_value = None
         
-        with patch('horse_id.os.path.exists', return_value=False):
-            with patch('horse_id.os.makedirs') as mock_makedirs:
-                with patch('horse_id.os.path.dirname', return_value='/tmp'):
+        with patch('os.path.exists', return_value=False):
+            with patch('os.makedirs') as mock_makedirs:
+                with patch('os.path.dirname', return_value='/tmp'):
                     result = download_from_s3(mock_client, 'test-bucket', 'test-key', '/tmp/test-file')
         
         assert result is True
@@ -172,9 +176,9 @@ class TestDownloadFromS3:
         mock_client = Mock()
         mock_client.download_file.return_value = None
         
-        with patch('horse_id.os.path.exists', return_value=False):
-            with patch('horse_id.os.makedirs') as mock_makedirs:
-                with patch('horse_id.os.path.dirname', return_value=''):
+        with patch('os.path.exists', return_value=False):
+            with patch('os.makedirs') as mock_makedirs:
+                with patch('os.path.dirname', return_value=''):
                     result = download_from_s3(mock_client, 'test-bucket', 'test-key', '/tmp/test-file')
         
         assert result is True
@@ -189,9 +193,9 @@ class TestDownloadFromS3:
         error_response = {'Error': {'Code': '404'}}
         mock_client.download_file.side_effect = ClientError(error_response, 'GetObject')
         
-        with patch('horse_id.os.path.exists', return_value=False):
-            with patch('horse_id.os.makedirs'):
-                with patch('horse_id.os.path.dirname', return_value='/tmp'):
+        with patch('os.path.exists', return_value=False):
+            with patch('os.makedirs'):
+                with patch('os.path.dirname', return_value='/tmp'):
                     result = download_from_s3(mock_client, 'test-bucket', 'test-key', '/tmp/test-file')
         
         assert result is False
@@ -204,9 +208,9 @@ class TestDownloadFromS3:
         error_response = {'Error': {'Code': '403'}}
         mock_client.download_file.side_effect = ClientError(error_response, 'GetObject')
         
-        with patch('horse_id.os.path.exists', return_value=False):
-            with patch('horse_id.os.makedirs'):
-                with patch('horse_id.os.path.dirname', return_value='/tmp'):
+        with patch('os.path.exists', return_value=False):
+            with patch('os.makedirs'):
+                with patch('os.path.dirname', return_value='/tmp'):
                     result = download_from_s3(mock_client, 'test-bucket', 'test-key', '/tmp/test-file')
         
         assert result is False
@@ -216,9 +220,9 @@ class TestDownloadFromS3:
         mock_client = Mock()
         mock_client.download_file.return_value = None
         
-        with patch('horse_id.os.path.exists', return_value=False):
-            with patch('horse_id.os.makedirs', side_effect=Exception('Permission denied')):
-                with patch('horse_id.os.path.dirname', return_value='/tmp'):
+        with patch('os.path.exists', return_value=False):
+            with patch('os.makedirs', side_effect=Exception('Permission denied')):
+                with patch('os.path.dirname', return_value='/tmp'):
                     result = download_from_s3(mock_client, 'test-bucket', 'test-key', '/tmp/test-file')
         
         assert result is False

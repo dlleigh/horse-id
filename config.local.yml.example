@@ -1,0 +1,29 @@
+# config.local.yml.example
+# 
+# This is an example local configuration file that can be copied to config.local.yml
+# to override settings in config.yml without affecting version control.
+#
+# Copy this file to config.local.yml and customize as needed:
+#   cp config.local.yml.example config.local.yml
+#
+# The config.local.yml file is automatically ignored by git.
+
+# Override the data root directory for your local environment
+paths:
+  data_root: "/path/to/your/horse-id-data"
+  # You can also override specific file paths if needed:
+  # manifest_file: "/custom/path/to/manifest.csv"
+
+# Override S3 settings for your environment
+# s3:
+#   bucket_name: "my-horse-id-bucket"
+
+# Override similarity thresholds for testing
+# similarity:
+#   merge_threshold: 0.15
+#   inference_threshold: 0.7
+
+# Override detection parameters for experimentation
+# detection:
+#   confidence_threshold: 0.6
+#   size_ratio_for_single_horse: 2.5

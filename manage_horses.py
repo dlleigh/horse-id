@@ -13,18 +13,18 @@ IMAGE_DISPLAY_WIDTH = 300  # Width for displaying images
 def load_config():
     """Loads the YAML configuration file."""
     try:
-        with open(CONFIG_FILE, 'r') as f:
-            config = yaml.safe_load(f)
-    except FileNotFoundError:
-        st.error(f"Error: Configuration file '{CONFIG_FILE}' not found. Please ensure it exists in the same directory as the app.")
+        from config_utils import load_config as load_cfg
+        return load_cfg()
+    except Exception as e:
+        st.error(f"Error loading configuration: {e}")
         st.stop()
-    return config
 
 @st.cache_data(ttl=300)  # Cache for 5 minutes
 def load_manifest_data():
     """Loads the merged manifest CSV file."""
     config = load_config()
-    DATA_ROOT = os.path.expanduser(config['paths']['data_root'])
+    from config_utils import get_data_root
+    DATA_ROOT = get_data_root(config)
     MERGED_MANIFEST_FILE = config['paths']['merged_manifest_file'].format(data_root=DATA_ROOT)
     
     try:
@@ -46,7 +46,8 @@ def load_manifest_data():
 def get_image_dir():
     """Get the image directory path."""
     config = load_config()
-    DATA_ROOT = os.path.expanduser(config['paths']['data_root'])
+    from config_utils import get_data_root
+    DATA_ROOT = get_data_root(config)
     return config['paths']['dataset_dir'].format(data_root=DATA_ROOT)
 
 def validate_canonical_id_consistency(df):

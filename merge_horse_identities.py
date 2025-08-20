@@ -19,11 +19,10 @@ from wildlife_tools.similarity import CosineSimilarity
 from wildlife_tools.data import ImageDataset
 
 # --- Load Configuration ---
-with open('config.yml', 'r') as f:
-    config = yaml.safe_load(f)
+from config_utils import load_config, get_data_root
 
-# --- Use the config values ---
-DATA_ROOT = os.path.expanduser(config['paths']['data_root'])
+config = load_config()
+DATA_ROOT = get_data_root(config)
 IMAGE_DIR = config['paths']['dataset_dir'].format(data_root=DATA_ROOT)
 # Reads from the detector's output, writes to the final merged file
 INPUT_MANIFEST_FILE = config['paths']['detected_manifest_file'].format(data_root=DATA_ROOT)

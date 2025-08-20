@@ -14,11 +14,10 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
 # --- Load Configuration ---
-with open('config.yml', 'r') as f:
-    config = yaml.safe_load(f)
+from config_utils import load_config, get_data_root
 
-# --- Use the config values ---
-DATA_ROOT = os.path.expanduser(config['paths']['data_root'])
+config = load_config()
+DATA_ROOT = get_data_root(config)
 DATASET_DIR = config['paths']['dataset_dir'].format(data_root=DATA_ROOT)
 MANIFEST_FILE = config['paths']['manifest_file'].format(data_root=DATA_ROOT)
 TEMP_DIR = config['paths']['temp_dir'].format(data_root=DATA_ROOT)

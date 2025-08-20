@@ -12,17 +12,18 @@ from pathlib import Path
 
 def load_config():
     """Load configuration from config.yml"""
-    if not os.path.exists('config.yml'):
-        print("Error: Configuration file 'config.yml' not found.")
+    try:
+        from config_utils import load_config as load_cfg
+        return load_cfg()
+    except Exception as e:
+        print(f"Error loading configuration: {e}")
         sys.exit(1)
-    with open('config.yml', 'r') as f:
-        config = yaml.safe_load(f)
-    return config
 
 def setup_paths(config):
     """Setup input and output paths from configuration"""
     try:
-        data_root = os.path.expanduser(config['paths']['data_root'])
+        from config_utils import get_data_root
+        data_root = get_data_root(config)
         excel_file = config['herd_parser']['master_horse_location_file'].format(data_root=data_root)
         output_file = config['paths']['horse_herds_file'].format(data_root=data_root)
         return excel_file, output_file
