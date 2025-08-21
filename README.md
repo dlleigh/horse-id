@@ -386,6 +386,38 @@ The `manage_horses.py` tool respects pipeline locks:
 - **Override option**: Allows experienced users to override locks with warnings
 - **Safe browsing**: Users can view data even when overriding locks
 
+### Horse Management Application
+
+The horse management application provides a comprehensive web interface for reviewing and managing horse identities:
+
+**Easy Startup:**
+```bash
+# macOS/Linux (recommended)
+./manage_horses.sh
+
+# Windows (recommended)  
+manage_horses.bat
+
+# Alternative - direct Streamlit
+streamlit run manage_horses.py
+```
+
+**Key Features:**
+- **Visual Image Gallery**: Browse all images for each horse with filtering options
+- **Status Management**: Mark images as Active, EXCLUDE, or REVIEW
+- **Canonical ID Merging**: Reassign images between horses or create new identities
+- **Horse Name Management**: Update normalized horse names for consistency
+- **Detection Override**: Manually correct automatic horse detection results
+- **Multi-User Safety**: Respects pipeline locks with override capability
+- **Data Integrity**: Enforces consistent horse naming within canonical IDs
+
+**Workflow for Manual Review:**
+1. Pipeline flags recurring horse names (e.g., "Cowboy 1", "Cowboy 2")
+2. Open management app and select flagged horses
+3. Review images to identify which represent the same animal
+4. Use "Canonical ID Assignment" tab to merge duplicate identities
+5. Verify results and continue with remaining flagged horses
+
 ### Best Practices
 
 1. **Use the unified pipeline** (`run_pipeline.sh`) rather than individual scripts
@@ -484,10 +516,23 @@ run_pipeline.bat --force
 - **Cross-platform** support for macOS, Linux, and Windows
 
 **Manual Review (if needed):**
+
+**macOS/Linux:**
+```bash
+./manage_horses.sh
+```
+
+**Windows:**
+```batch
+manage_horses.bat
+```
+
+**Alternative (any platform):**
 ```bash
 streamlit run manage_horses.py
 ```
-Use this tool to manually review and merge recurring horse names flagged by the pipeline. The pipeline will provide specific guidance on which horses need review.
+
+Use this tool to manually review and merge recurring horse names flagged by the pipeline. The pipeline will provide specific guidance on which horses need review. The wrapper scripts automatically handle virtual environment activation and provide better error messages.
 
 ### 🔧 Alternative: Individual Scripts (Advanced/Debugging)
 
@@ -513,6 +558,13 @@ For debugging or advanced use cases, you can still run individual scripts:
     This will automatically merge non-recurring horse names and flag recurring names for manual review.
 5.  **Manual Review (if needed)**:
     ```bash
+    # macOS/Linux
+    ./manage_horses.sh
+    
+    # Windows  
+    manage_horses.bat
+    
+    # Alternative (any platform)
     streamlit run manage_horses.py
     ```
     Use this tool to manually review and merge recurring horse names flagged in step 4. Open the URL provided by Streamlit in your web browser.

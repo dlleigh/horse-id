@@ -8,7 +8,7 @@ import sys
 
 # Import pipeline lock utilities
 try:
-    from pipeline_lock import check_and_prompt_for_lock, read_lock_file, format_lock_age
+    from pipeline_lock import pipeline_lock, PipelineLockExists
     LOCK_SUPPORT = True
 except ImportError:
     LOCK_SUPPORT = False
@@ -169,59 +169,106 @@ def get_status_display(status):
     else:
         return f"🟡 {status}"
 
-def check_pipeline_lock():
-    """Check for pipeline lock and handle appropriately."""
+def acquire_management_lock():
+    """Acquire management lock for the session."""
     if not LOCK_SUPPORT:
         return True  # Continue if lock support is not available
     
-    lock_data = read_lock_file()
-    if not lock_data:
-        return True  # No lock exists, safe to proceed
+    # Import additional functions needed for manual lock management
+    try:
+        from pipeline_lock import create_lock_file, read_lock_file, check_and_prompt_for_lock, remove_lock_file
+        import atexit
+        import os
+        import getpass
+        import socket
+    except ImportError as e:
+        st.error(f"Failed to import lock utilities: {e}")
+        return False
     
-    # Pipeline lock exists - show warning and allow override
-    st.error("🔒 **Pipeline Lock Detected**")
+    # Check if we already have a lock for this session
+    if st.session_state.get('management_lock_acquired', False):
+        # Verify our lock still exists and is ours
+        lock_data = read_lock_file()
+        if lock_data:
+            current_user = getpass.getuser()
+            current_hostname = socket.gethostname()
+            current_pid = os.getpid()
+            
+            # Check if this is our lock
+            if (lock_data.get('user') == current_user and 
+                lock_data.get('hostname') == current_hostname and
+                lock_data.get('operation') == 'management'):
+                return True
+            else:
+                # Someone else's lock - need to handle this
+                st.session_state.management_lock_acquired = False
+        else:
+            # Lock disappeared - need to reacquire
+            st.session_state.management_lock_acquired = False
     
-    with st.expander("🔍 Lock Details", expanded=True):
-        timestamp = lock_data.get("timestamp", "Unknown")
-        user = lock_data.get("user", "Unknown")
-        hostname = lock_data.get("hostname", "Unknown")
-        operation = lock_data.get("operation", "Unknown")
-        stage = lock_data.get("stage")
-        age = format_lock_age(timestamp)
+    # Try to acquire the management lock
+    try:
+        # Check for existing locks first
+        existing_lock = read_lock_file()
+        if existing_lock:
+            # Show lock details and get user decision
+            st.error("🔒 **Existing Lock Detected**")
+            
+            with st.expander("🔍 Lock Details", expanded=True):
+                timestamp = existing_lock.get("timestamp", "Unknown")
+                user = existing_lock.get("user", "Unknown")
+                hostname = existing_lock.get("hostname", "Unknown")
+                operation = existing_lock.get("operation", "Unknown")
+                stage = existing_lock.get("stage")
+                
+                st.markdown(f"**Created:** {timestamp}")
+                st.markdown(f"**User:** {user}@{hostname}")
+                st.markdown(f"**Operation:** {operation}")
+                if stage:
+                    st.markdown(f"**Stage:** {stage}")
+            
+            st.warning("""
+            **This indicates another operation is in progress.**
+            Only continue if you're certain the other operation is not running.
+            """)
+            
+            # Create override option
+            if st.button("🚨 Override Lock & Continue", type="primary", 
+                        help="Only use if you're certain the other operation is not running"):
+                # Remove existing lock and proceed
+                remove_lock_file()
+                st.session_state.lock_overridden = True
+                st.rerun()  # Rerun to continue with lock acquisition
+            else:
+                return False
         
-        st.markdown(f"**Created:** {timestamp}")
-        st.markdown(f"**User:** {user}@{hostname}")
-        st.markdown(f"**Operation:** {operation}")
-        if stage:
-            st.markdown(f"**Stage:** {stage}")
-        st.markdown(f"**Age:** {age}")
-    
-    st.warning("""
-    **This indicates:**
-    - Pipeline is currently running on another machine
-    - Previous pipeline was killed or crashed  
-    - System was powered off during pipeline execution
-    """)
-    
-    st.error("""
-    🚨 **WARNING: Editing while pipeline runs will cause data corruption!**
-    
-    Only continue if you're certain no pipeline is running elsewhere.
-    """)
-    
-    # Create override option in sidebar
-    with st.sidebar:
-        st.header("⚠️ Lock Override")
+        # Create the management lock
+        create_lock_file(operation="management", stage="active")
+        st.session_state.management_lock_acquired = True
+        st.session_state.management_lock_error = None
         
-        if st.button("🚨 Override Lock & Continue", type="primary", 
-                    help="Only use if you're certain the pipeline is not running"):
-            st.session_state.lock_overridden = True
-            st.rerun()
+        # Register cleanup function to remove lock when session ends
+        # Note: This is best effort - Streamlit doesn't guarantee cleanup execution
+        def cleanup_lock():
+            try:
+                lock_data = read_lock_file()
+                if lock_data and lock_data.get('operation') == 'management':
+                    remove_lock_file()
+            except:
+                pass  # Ignore cleanup errors
         
-        st.caption("⚠️ Use with extreme caution!")
-    
-    # Check if user has overridden the lock
-    return st.session_state.get('lock_overridden', False)
+        atexit.register(cleanup_lock)
+        
+        return True
+        
+    except PipelineLockExists as e:
+        st.session_state.management_lock_acquired = False
+        st.session_state.management_lock_error = str(e)
+        return False
+    except Exception as e:
+        st.session_state.management_lock_acquired = False
+        st.session_state.management_lock_error = f"Lock error: {e}"
+        return False
 
 def main():
     st.set_page_config(
@@ -230,16 +277,20 @@ def main():
         layout="wide"
     )
     
-    # Check for pipeline lock first
-    if not check_pipeline_lock():
-        st.stop()  # Stop execution if lock exists and not overridden
+    # Acquire management lock first
+    if not acquire_management_lock():
+        st.stop()  # Stop execution if lock cannot be acquired
     
     st.title("🐴 Horse Management")
     st.markdown("Manage horse status and review images by canonical ID")
     
+    # Show lock status
+    if st.session_state.get('management_lock_acquired', False):
+        st.success("🔒 **Management Lock Active** - Protected from concurrent pipeline operations")
+    
     # Show lock override status if applicable
     if st.session_state.get('lock_overridden', False):
-        st.warning("⚡ **Lock Override Active** - You are editing while a pipeline lock exists. Use caution!")
+        st.warning("⚡ **Lock Override Active** - You overrode an existing lock. Use caution!")
     
     # Load data
     df, manifest_file_path = load_manifest_data()
@@ -263,6 +314,40 @@ def main():
     
     # Sidebar for horse selection
     with st.sidebar:
+        # Lock management section
+        if LOCK_SUPPORT and st.session_state.get('management_lock_acquired', False):
+            st.header("🔒 Lock Management")
+            st.success("Management lock active")
+            
+            if st.button("🔓 Release Lock & Exit", help="Release the management lock and exit the application"):
+                try:
+                    from pipeline_lock import remove_lock_file, read_lock_file
+                    import getpass
+                    import socket
+                    
+                    # Verify this is our lock before removing it
+                    lock_data = read_lock_file()
+                    if lock_data:
+                        current_user = getpass.getuser()
+                        current_hostname = socket.gethostname()
+                        
+                        if (lock_data.get('user') == current_user and 
+                            lock_data.get('hostname') == current_hostname and
+                            lock_data.get('operation') == 'management'):
+                            remove_lock_file()
+                            st.session_state.management_lock_acquired = False
+                            st.success("Lock released successfully!")
+                            st.stop()
+                        else:
+                            st.error("Cannot release lock - not owned by this session")
+                    else:
+                        st.warning("No lock found to release")
+                        st.session_state.management_lock_acquired = False
+                except Exception as e:
+                    st.error(f"Error releasing lock: {e}")
+            
+            st.divider()
+        
         st.header("Select Horse")
         
         if horse_list.empty:
