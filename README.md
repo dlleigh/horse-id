@@ -11,8 +11,8 @@ The workflow is divided into several stages, each handled by a specific Python s
 1.  **Email Ingestion (`ingest_from_email.py`)**: Fetches emails from a Gmail account, extracts horse names from subjects, saves image attachments, and creates an initial manifest of photos.
 2.  **Horse Name Normalization (`normalize_horse_names.py`)**: Normalizes horse names from email subjects against a master horse list to address "horse name drift" where email names vary slightly from the official names (e.g., 'Goodwill' vs 'Good Will'). Includes interactive CLI for uncertain matches and saves approved mappings for consistency.
 3.  **Multi-Horse Detection (`multi_horse_detector.py`)**: Analyzes each downloaded image to detect the number of horses present (NONE, SINGLE, MULTIPLE) using a YOLOv5 model. It updates the manifest with this detection information.
-4.  **Identity Merging (`merge_horse_identities.py`)**: Compares images of horses (identified as 'SINGLE' detection) with the same normalized horse name but from different emails. It uses the pre-extracted features and the Wildlife-mega-L-384 model to determine if they are the same horse and merges their identities by assigning a common `canonical_id`.
-5.  **Merge Review (`review_merges_app.py`)**: A web application that allows a user to review the automated merge decisions from `merge_horse_identities.py`, manually merge or un-merge identities, and correct any errors.
+4.  **Identity Merging (`merge_horse_identities.py`)**: Automatically merges horses with unique names (non-recurring) across different emails while flagging horses with recurring names (e.g., "Cowboy 1", "Cowboy 2") for manual review. No complex similarity analysis is performed.
+5.  **Manual Horse Management (`manage_horses.py`)**: A web application for reviewing and manually merging horses with recurring names flagged in step 4, providing tools to reassign canonical IDs and manage horse identities.
 6.  **Gallery Generation (`generate_gallery.py`)**: Creates interactive HTML galleries from the various manifest CSV files (base, normalized, detected, and merged), allowing for easy visual inspection and filtering of the image data at different stages of processing.
 7. **Calibration and Testing (`horse_id.ipynb`)**: Creates calibration files if none exist, evaluates model performance and creates the prediction results file for side-by-side comparison of test images and model predictions.
 8. **Feature Extraction (`extract_features.py`)**: Extracts features using [Wildlife-mega-L-384](https://huggingface.co/BVRA/MegaDescriptor-L-384).
@@ -72,46 +72,40 @@ This project includes a comprehensive unit test suite and end-to-end tests.  See
 
 ### 4. Identity Merging (`merge_horse_identities.py`)
 
-*   **Purpose**: There are multiple emails available for each horse, each with images taken at different times. There are also multiple horses with the same name. The purpose of `merge_horse_identities.py` is to determine whether horses with the same name but different canonical_id are actually the same horse.
-*   **Similarity System**: Uses the **Wildlife-mega-L-384** global model for similarity computation with optimized feature extraction. The system leverages pre-extracted features from `extract_features.py` when available, falling back to on-the-fly extraction only when necessary for maximum performance.
-*   **Horse Name Intelligence**: Leverages `parse_horse_herds.py` output to identify horses with recurring names (e.g., "Cowboy 1", "Cowboy 2") that require detailed similarity analysis versus non-recurring names that can be auto-merged.
-*   **Candidate Selection**:
+*   **Purpose**: There are multiple emails available for each horse, each with images taken at different times. There are also multiple horses with the same name. The purpose of `merge_horse_identities.py` is to safely merge horses with unique names while flagging ambiguous cases for manual review.
+*   **Two-Tiered Approach**: The system uses different strategies based on horse name patterns identified from `parse_horse_herds.py`:
+    *   **Non-Recurring Names**: Horses with unique names (e.g., "Thunder", "Lightning") are automatically merged across all emails since there's only one horse with that name.
+    *   **Recurring Names**: Horses with numbered names (e.g., "Cowboy 1", "Cowboy 2") are flagged for manual review since multiple horses may share similar base names.
+*   **Processing Flow**:
     *   Filters the manifest for images marked as `SINGLE` horse detections.
     *   Groups these images by the `normalized_horse_name` from the normalization step.
-    *   Automatically merges non-recurring horse names without similarity analysis.
-    *   Performs detailed similarity analysis only for recurring horse names.
-*   **Performance Optimization**:
-    *   **Pre-extracted Features**: Uses cached features from `database_deep_features.pkl` when available for ~90% speed improvement.
-    *   **Hybrid Extraction**: Falls back to on-the-fly feature extraction only for images not in the cache.
-    *   **Smart Filtering**: Leverages horse herds data to minimize unnecessary similarity computations.
-*   **Pairwise Comparison**:
-    *   Within each recurring `normalized_horse_name` group, compares sets of images belonging to different `message_id`s.
-    *   The `check_similarity` function uses the Wildlife-mega-L-384 model with CosineSimilarity to compute similarity scores between image sets from different messages. A match is determined if the score exceeds `SIMILARITY_THRESHOLD` from `config.yml`.
-*   **Graph-Based Merging**:
-    *   Builds a graph where nodes are `canonical_id`s (initially, one per email).
-    *   An edge is added between two `canonical_id`s if their respective image sets (from different messages) are deemed similar.
-    *   Finds connected components in this graph. All `canonical_id`s within a component are considered to represent the same horse.
-    *   The lowest `canonical_id` in a component becomes the new `canonical_id` for all images belonging to that component.
-*   **Manifest Update**: Updates the `canonical_id` and `last_merged_timestamp` in the manifest (read from `detected_manifest_file`) and saves it to `merged_manifest_file`.
-*   **Merge Log**: Records each pairwise comparison (whether a match or not) along with similarity scores and relevant IDs into `merge_results_file`. This log facilitates merge review and is used to avoid recomparisons.
+    *   **Auto-merges non-recurring names**: All images with the same unique normalized name get merged into a single `canonical_id`.
+    *   **Flags recurring names for manual review**: When multiple `canonical_id`s exist for recurring horse names, outputs detailed information for manual review using `manage_horses.py`.
+*   **Manual Review Output**: For recurring names with multiple canonical IDs, the script provides:
+    *   Clear warnings with horse names requiring attention
+    *   Specific canonical IDs that need review
+    *   Image counts and email sources for each canonical ID
+    *   Instructions to use `manage_horses.py` for manual merging
+*   **Manifest Update**: Updates the `canonical_id` and `last_merged_timestamp` only for auto-merged non-recurring names. Recurring names retain their original canonical IDs for manual review.
 
-### 5. Merge Review (`review_merges_app.py`)
+### 5. Horse Management (`manage_horses.py`)
 
-*   **Purpose**: This tool is used for analyzing and correcting the results of `merge_horse_identities.py`.
-*   **Web Interface**: A Streamlit application for interactively reviewing and correcting merge decisions.
-*   **Data Loading**: Loads the `merged_manifest_file` (current state of identities) and `merge_results_file` (log of comparisons).
-*   **Review Process**:
-    *   Iterates through pairs of `message_id`s as recorded in `merge_results_file`.
-    *   For each pair, it displays:
-        *   Images from both messages.
-        *   Their current `canonical_id` and original `canonical_id` (from the manifest).
-        *   The similarity score and the system's predicted match status (from `merge_results_file`).
-        *   Whether they are currently merged in the manifest.
-*   **User Actions**:
-    *   **Merge**: If two identities are deemed the same by the user, they can be merged. The app updates the `canonical_id` of all images associated with one identity to match the other (choosing the lower ID as the target). `last_merged_timestamp` is updated.
-    *   **Un-merge**: If a previous merge (either by system or user) is incorrect, the identities can be separated. The app reverts the `canonical_id` of the images in the selected messages back to their `original_canonical_id`. `last_merged_timestamp` is cleared.
-    *   **Skip**: No change is made.
-*   **Manifest Saving**: Any changes made by the user are saved back to the `merged_manifest_file`.
+*   **Purpose**: Primary tool for manually reviewing and managing horse identities, especially for recurring names flagged by `merge_horse_identities.py`.
+*   **Web Interface**: A Streamlit application providing comprehensive horse identity management capabilities.
+*   **Data Loading**: Loads the `merged_manifest_file` and displays horses grouped by `canonical_id`.
+*   **Key Features**:
+    *   **Horse Selection**: Browse all horses by canonical ID with status indicators and image counts.
+    *   **Image Gallery**: View all images for a selected horse with filtering options (single horse detections only).
+    *   **Status Management**: Update status flags (Active, EXCLUDE, REVIEW) for individual images or entire horses.
+    *   **Canonical ID Assignment**: Merge horses by reassigning images to different canonical IDs or creating new ones.
+    *   **Horse Name Management**: Update normalized horse names for consistency.
+*   **Manual Merge Workflow**: When `merge_horse_identities.py` flags recurring names:
+    1. Select the first canonical ID for the recurring horse name
+    2. Review images to confirm it represents the target horse
+    3. Use "Canonical ID Assignment" tab to find other canonical IDs for the same horse name
+    4. Reassign images from duplicate canonical IDs to the primary one
+    5. Repeat for all flagged recurring names
+*   **Data Integrity**: Enforces the critical rule that all images with the same `canonical_id` must have the same `normalized_horse_name`.
 
 ### 6. Gallery Generation (`generate_gallery.py`)
 
@@ -275,20 +269,7 @@ The system uses several CSV files to store and pass data between stages:
         *   `canonical_id`: Updated to reflect merged identities. Photos of the same horse (even from different emails) will share the same `canonical_id`.
         *   `last_merged_timestamp`: Timestamp of the last merge operation affecting this row.
 
-5.  **`merge_results_file` (e.g., `data/merge_results.csv`)**
-    *   **Created/Updated by**: `merge_horse_identities.py` (primarily), read by `review_merges_app.py`.
-    *   **Purpose**: Logs all pairwise similarity comparisons made between image sets from different messages. This serves as a cache and an audit trail for the review app.
-    *   **Key Columns**:
-        *   `timestamp`: When the comparison was made.
-        *   `horse_name`: The common horse name under which the comparison was made.
-        *   `canonical_id_a`: `canonical_id` of the first group of images at the time of comparison.
-        *   `canonical_id_b`: `canonical_id` of the second group of images at the time of comparison.
-        *   `message_id_a`: `message_id` for the first group.
-        *   `message_id_b`: `message_id` for the second group.
-        *   `max_similarity`: The similarity score computed by WildFusion.
-        *   `is_match`: Boolean (True/False) indicating if the system predicted them as a match based on the threshold.
-
-6.  **`horse_herds_file` (e.g., `data/horse_herds.csv`)**
+5.  **`horse_herds_file` (e.g., `data/horse_herds.csv`)**
     *   **Created by**: `parse_horse_herds.py`
     *   **Input**: `master_horse_location_file` (Excel file specified in config.yml)
     *   **Purpose**: Maps horse names to their respective herds to enable herd information display in identification results.
@@ -371,6 +352,47 @@ graph TD
 
 ```
 
+## Multi-User Safety and Locking
+
+The system includes a distributed locking mechanism to prevent conflicts when multiple users are working with the same shared data directory (e.g., Google Drive):
+
+### Pipeline Lock System
+
+- **Automatic Locking**: The unified pipeline (`run_pipeline.sh`/`run_pipeline.bat`) automatically creates a lock when running
+- **Cross-Machine Detection**: Locks work across different computers sharing the same data directory
+- **Interactive Override**: Users can see who has locks and choose to override them with clear warnings
+- **Lock Information**: Displays lock age, user, hostname, and current pipeline stage
+- **Automatic Cleanup**: Locks are automatically cleaned up on completion, failure, or interruption
+
+### Lock Management
+
+**Check lock status:**
+```bash
+./run_pipeline.sh --check-lock        # macOS/Linux
+run_pipeline.bat --check-lock         # Windows
+python pipeline_lock.py --check       # Direct Python
+```
+
+**Force remove stale locks:**
+```bash
+python pipeline_lock.py --remove      # Interactive removal with prompts
+python pipeline_lock.py --force-remove # Force removal without prompts
+```
+
+### Using manage_horses.py with Locks
+
+The `manage_horses.py` tool respects pipeline locks:
+- **Blocked access**: Shows detailed lock information when a pipeline is running
+- **Override option**: Allows experienced users to override locks with warnings
+- **Safe browsing**: Users can view data even when overriding locks
+
+### Best Practices
+
+1. **Use the unified pipeline** (`run_pipeline.sh`) rather than individual scripts
+2. **Check for locks** before starting work if you suspect conflicts
+3. **Override conservatively** - only when certain the pipeline isn't running elsewhere
+4. **Communicate** with team members about long-running operations
+
 ## Setup and Configuration
 
 1.  **Clone the repository.**
@@ -417,6 +439,60 @@ graph TD
 
 ## Running the System
 
+### 🚀 Recommended: Unified Pipeline (New)
+
+The preferred way to run the system is using the unified pipeline script that combines all processing steps into a single atomic operation with multi-user safety:
+
+**macOS/Linux:**
+```bash
+# Interactive directory ingestion (default)
+./run_pipeline.sh
+
+# Email ingestion
+./run_pipeline.sh --email
+
+# Non-interactive directory ingestion
+./run_pipeline.sh --dir --path /path/to/horses --date 20240315
+
+# Force override existing locks
+./run_pipeline.sh --force
+
+# Check lock status
+./run_pipeline.sh --check-lock
+```
+
+**Windows:**
+```batch
+# Interactive directory ingestion (default)
+run_pipeline.bat
+
+# Email ingestion
+run_pipeline.bat --email
+
+# Non-interactive directory ingestion
+run_pipeline.bat --dir --path C:\path\to\horses --date 20240315
+
+# Force override existing locks
+run_pipeline.bat --force
+```
+
+**Benefits of the unified pipeline:**
+- **Single command** replaces 4 separate script runs
+- **Multi-user safety** with distributed locking prevents conflicts
+- **Automatic cleanup** on completion or failure
+- **Progress tracking** with stage-by-stage updates
+- **Cross-platform** support for macOS, Linux, and Windows
+
+**Manual Review (if needed):**
+```bash
+streamlit run manage_horses.py
+```
+Use this tool to manually review and merge recurring horse names flagged by the pipeline. The pipeline will provide specific guidance on which horses need review.
+
+### 🔧 Alternative: Individual Scripts (Advanced/Debugging)
+
+For debugging or advanced use cases, you can still run individual scripts:
+
 1.  **Ingest Emails**:
     ```bash
     python ingest_from_email.py
@@ -434,12 +510,12 @@ graph TD
     ```bash
     python merge_horse_identities.py
     ```
-    Note: This step requires calibration files that are created by the `horse_id.ipynb` notebook.
-5.  **Review Merges**:
+    This will automatically merge non-recurring horse names and flag recurring names for manual review.
+5.  **Manual Review (if needed)**:
     ```bash
-    streamlit run review_merges_app.py
+    streamlit run manage_horses.py
     ```
-    Open the URL provided by Streamlit in your web browser.
+    Use this tool to manually review and merge recurring horse names flagged in step 4. Open the URL provided by Streamlit in your web browser.
 6. **Generate Galleries**:
     ```bash
     python generate_gallery.py
