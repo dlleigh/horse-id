@@ -45,7 +45,6 @@ fsspec==2025.3.0
 gdown==5.2.0
 gitdb==4.0.12
 GitPython==3.1.44
-gluefactory @ git+https://github.com/cvg/glue-factory.git@1f56839db2242929960d70f85bfac6c19ef2821c
 google-api-core==2.24.2
 google-api-python-client==2.170.0
 google-auth==2.40.2
@@ -91,7 +90,6 @@ kaggle==1.7.4.5
 kiwisolver==1.4.8
 kornia==0.8.1
 kornia_rs==0.1.9
-lightglue @ git+https://github.com/cvg/LightGlue.git@edb2b838efb2ecfe3f88097c5fad9887d95aedad
 Markdown==3.8
 MarkupSafe==3.0.2
 matplotlib==3.10.3
@@ -133,7 +131,7 @@ py-cpuinfo==9.0.0
 pyarrow==20.0.0
 pyasn1==0.6.1
 pyasn1_modules==0.4.2
-pycocotools==2.0.8
+pycocotools
 pycparser==2.22
 pydantic==2.11.5
 pydantic_core==2.33.2
