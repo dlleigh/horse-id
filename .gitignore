@@ -11,6 +11,10 @@ sandbox
 __pycache__
 horse-id-data
 
+# Local configuration overrides
+config.local.yml
+*.local.yml
+
 # Testing files
 .coverage
 *.xml

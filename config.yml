@@ -4,7 +4,7 @@
 # --- File and Directory Paths ---
 # Use {data_root} as a placeholder to keep paths relative and clean.
 paths:
-  data_root: "~/google-drive/horseID Project/data"
+  data_root: "~/horse-id-data"
   dataset_dir: "{data_root}/horse_photos"
   manifest_file: "{data_root}/horse_photos_manifest.csv"
   # Output file from name normalization step

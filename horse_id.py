@@ -60,20 +60,17 @@ class Horses(datasets.WildlifeDataset):
         return result
 
 def load_config():
-    if not os.path.exists(CONFIG_FILE):
-        logger.error(f"Error: Configuration file '{CONFIG_FILE}' not found.")
-        # In Lambda, we don't sys.exit directly from a helper, but let the handler return an error.
-        raise FileNotFoundError(f"Configuration file '{CONFIG_FILE}' not found.")
-    with open(CONFIG_FILE, 'r') as f:
-        config = yaml.safe_load(f)
-    return config
+    try:
+        from config_utils import load_config as load_cfg
+        return load_cfg()
+    except Exception as e:
+        logger.error(f"Error loading configuration: {e}")
+        raise
 
 def setup_paths(config):
     try:
-        # Use data_root from config, but allow override via an environment variable for Docker.
-        # This makes the script more portable.
-        data_root_config = os.environ.get('HORSE_ID_DATA_ROOT', config['paths']['data_root'])
-        data_root = os.path.expanduser(data_root_config)
+        from config_utils import get_data_root
+        data_root = get_data_root(config)
         manifest_file = config['paths']['merged_manifest_file'].format(data_root=data_root)
         features_dir = config['paths']['features_dir'].format(data_root=data_root)
         horse_herds_file = config['paths']['horse_herds_file'].format(data_root=data_root)

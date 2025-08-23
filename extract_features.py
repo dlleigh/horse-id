@@ -44,17 +44,13 @@ class Horses(datasets.WildlifeDataset):
         return result
 
 def load_config():
-    if not os.path.exists(CONFIG_FILE):
-        print(f"Error: Configuration file '{CONFIG_FILE}' not found.")
-        print("Please ensure it's in the same directory as the script or provide the correct path.")
-        sys.exit(1)
-    with open(CONFIG_FILE, 'r') as f:
-        config = yaml.safe_load(f)
-    return config
+    from config_utils import load_config as load_cfg
+    return load_cfg()
 
 def setup_paths(config):
     try:
-        data_root = os.path.expanduser(config['paths']['data_root'])
+        from config_utils import get_data_root
+        data_root = get_data_root(config)
         image_dir = config['paths']['dataset_dir'].format(data_root=data_root)
         manifest_file = config['paths']['merged_manifest_file'].format(data_root=data_root)
         # Add a path for saving features

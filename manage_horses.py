@@ -6,6 +6,14 @@ from PIL import Image
 from datetime import datetime
 import sys
 
+# Import pipeline lock utilities
+try:
+    from pipeline_lock import pipeline_lock, PipelineLockExists
+    LOCK_SUPPORT = True
+except ImportError:
+    LOCK_SUPPORT = False
+    st.error("⚠️ Pipeline lock module not found. Multi-user safety disabled.")
+
 # --- Configuration Loading ---
 CONFIG_FILE = 'config.yml'
 IMAGE_DISPLAY_WIDTH = 300  # Width for displaying images
@@ -13,18 +21,18 @@ IMAGE_DISPLAY_WIDTH = 300  # Width for displaying images
 def load_config():
     """Loads the YAML configuration file."""
     try:
-        with open(CONFIG_FILE, 'r') as f:
-            config = yaml.safe_load(f)
-    except FileNotFoundError:
-        st.error(f"Error: Configuration file '{CONFIG_FILE}' not found. Please ensure it exists in the same directory as the app.")
+        from config_utils import load_config as load_cfg
+        return load_cfg()
+    except Exception as e:
+        st.error(f"Error loading configuration: {e}")
         st.stop()
-    return config
 
 @st.cache_data(ttl=300)  # Cache for 5 minutes
 def load_manifest_data():
     """Loads the merged manifest CSV file."""
     config = load_config()
-    DATA_ROOT = os.path.expanduser(config['paths']['data_root'])
+    from config_utils import get_data_root
+    DATA_ROOT = get_data_root(config)
     MERGED_MANIFEST_FILE = config['paths']['merged_manifest_file'].format(data_root=DATA_ROOT)
     
     try:
@@ -46,7 +54,8 @@ def load_manifest_data():
 def get_image_dir():
     """Get the image directory path."""
     config = load_config()
-    DATA_ROOT = os.path.expanduser(config['paths']['data_root'])
+    from config_utils import get_data_root
+    DATA_ROOT = get_data_root(config)
     return config['paths']['dataset_dir'].format(data_root=DATA_ROOT)
 
 def validate_canonical_id_consistency(df):
@@ -107,7 +116,7 @@ def save_manifest_with_validation(df, manifest_file_path):
     return True
 
 def get_horse_list(df):
-    """Get list of horses grouped by canonical_id with status info."""
+    """Get list of horses grouped by canonical_id with status info and usable image counts."""
     # Group by canonical_id and get representative info for each horse
     agg_dict = {
         'horse_name': 'first',  # Take first horse name for the canonical_id
@@ -124,10 +133,29 @@ def get_horse_list(df):
     # Set up column names
     if 'normalized_horse_name' in df.columns:
         horse_groups.columns = ['canonical_id', 'horse_name', 'status', 'image_count', 'normalized_horse_name']
-        # Sort by normalized name if available
-        horse_groups = horse_groups.sort_values('normalized_horse_name')
     else:
         horse_groups.columns = ['canonical_id', 'horse_name', 'status', 'image_count']
+    
+    # Calculate usable image counts (SINGLE detection AND not EXCLUDE status)
+    usable_counts = []
+    for _, row in horse_groups.iterrows():
+        canonical_id = row['canonical_id']
+        horse_images = df[df['canonical_id'] == canonical_id]
+        
+        # Count usable images: SINGLE detection AND (no status or status != 'EXCLUDE')
+        usable_mask = (
+            (horse_images['num_horses_detected'] == 'SINGLE') &
+            ((horse_images['status'].fillna('') == '') | (horse_images['status'] != 'EXCLUDE'))
+        )
+        usable_count = usable_mask.sum()
+        usable_counts.append(usable_count)
+    
+    horse_groups['usable_count'] = usable_counts
+    
+    # Sort by normalized name if available, otherwise by horse name
+    if 'normalized_horse_name' in df.columns:
+        horse_groups = horse_groups.sort_values('normalized_horse_name')
+    else:
         horse_groups = horse_groups.sort_values('horse_name')
     
     return horse_groups
@@ -141,6 +169,107 @@ def get_status_display(status):
     else:
         return f"🟡 {status}"
 
+def acquire_management_lock():
+    """Acquire management lock for the session."""
+    if not LOCK_SUPPORT:
+        return True  # Continue if lock support is not available
+    
+    # Import additional functions needed for manual lock management
+    try:
+        from pipeline_lock import create_lock_file, read_lock_file, check_and_prompt_for_lock, remove_lock_file
+        import atexit
+        import os
+        import getpass
+        import socket
+    except ImportError as e:
+        st.error(f"Failed to import lock utilities: {e}")
+        return False
+    
+    # Check if we already have a lock for this session
+    if st.session_state.get('management_lock_acquired', False):
+        # Verify our lock still exists and is ours
+        lock_data = read_lock_file()
+        if lock_data:
+            current_user = getpass.getuser()
+            current_hostname = socket.gethostname()
+            current_pid = os.getpid()
+            
+            # Check if this is our lock
+            if (lock_data.get('user') == current_user and 
+                lock_data.get('hostname') == current_hostname and
+                lock_data.get('operation') == 'management'):
+                return True
+            else:
+                # Someone else's lock - need to handle this
+                st.session_state.management_lock_acquired = False
+        else:
+            # Lock disappeared - need to reacquire
+            st.session_state.management_lock_acquired = False
+    
+    # Try to acquire the management lock
+    try:
+        # Check for existing locks first
+        existing_lock = read_lock_file()
+        if existing_lock:
+            # Show lock details and get user decision
+            st.error("🔒 **Existing Lock Detected**")
+            
+            with st.expander("🔍 Lock Details", expanded=True):
+                timestamp = existing_lock.get("timestamp", "Unknown")
+                user = existing_lock.get("user", "Unknown")
+                hostname = existing_lock.get("hostname", "Unknown")
+                operation = existing_lock.get("operation", "Unknown")
+                stage = existing_lock.get("stage")
+                
+                st.markdown(f"**Created:** {timestamp}")
+                st.markdown(f"**User:** {user}@{hostname}")
+                st.markdown(f"**Operation:** {operation}")
+                if stage:
+                    st.markdown(f"**Stage:** {stage}")
+            
+            st.warning("""
+            **This indicates another operation is in progress.**
+            Only continue if you're certain the other operation is not running.
+            """)
+            
+            # Create override option
+            if st.button("🚨 Override Lock & Continue", type="primary", 
+                        help="Only use if you're certain the other operation is not running"):
+                # Remove existing lock and proceed
+                remove_lock_file()
+                st.session_state.lock_overridden = True
+                st.rerun()  # Rerun to continue with lock acquisition
+            else:
+                return False
+        
+        # Create the management lock
+        create_lock_file(operation="management", stage="active")
+        st.session_state.management_lock_acquired = True
+        st.session_state.management_lock_error = None
+        
+        # Register cleanup function to remove lock when session ends
+        # Note: This is best effort - Streamlit doesn't guarantee cleanup execution
+        def cleanup_lock():
+            try:
+                lock_data = read_lock_file()
+                if lock_data and lock_data.get('operation') == 'management':
+                    remove_lock_file()
+            except:
+                pass  # Ignore cleanup errors
+        
+        atexit.register(cleanup_lock)
+        
+        return True
+        
+    except PipelineLockExists as e:
+        st.session_state.management_lock_acquired = False
+        st.session_state.management_lock_error = str(e)
+        return False
+    except Exception as e:
+        st.session_state.management_lock_acquired = False
+        st.session_state.management_lock_error = f"Lock error: {e}"
+        return False
+
 def main():
     st.set_page_config(
         page_title="Horse Management",
@@ -148,8 +277,20 @@ def main():
         layout="wide"
     )
     
+    # Acquire management lock first
+    if not acquire_management_lock():
+        st.stop()  # Stop execution if lock cannot be acquired
+    
     st.title("🐴 Horse Management")
     st.markdown("Manage horse status and review images by canonical ID")
+    
+    # Show lock status
+    if st.session_state.get('management_lock_acquired', False):
+        st.success("🔒 **Management Lock Active** - Protected from concurrent pipeline operations")
+    
+    # Show lock override status if applicable
+    if st.session_state.get('lock_overridden', False):
+        st.warning("⚡ **Lock Override Active** - You overrode an existing lock. Use caution!")
     
     # Load data
     df, manifest_file_path = load_manifest_data()
@@ -173,6 +314,40 @@ def main():
     
     # Sidebar for horse selection
     with st.sidebar:
+        # Lock management section
+        if LOCK_SUPPORT and st.session_state.get('management_lock_acquired', False):
+            st.header("🔒 Lock Management")
+            st.success("Management lock active")
+            
+            if st.button("🔓 Release Lock & Exit", help="Release the management lock and exit the application"):
+                try:
+                    from pipeline_lock import remove_lock_file, read_lock_file
+                    import getpass
+                    import socket
+                    
+                    # Verify this is our lock before removing it
+                    lock_data = read_lock_file()
+                    if lock_data:
+                        current_user = getpass.getuser()
+                        current_hostname = socket.gethostname()
+                        
+                        if (lock_data.get('user') == current_user and 
+                            lock_data.get('hostname') == current_hostname and
+                            lock_data.get('operation') == 'management'):
+                            remove_lock_file()
+                            st.session_state.management_lock_acquired = False
+                            st.success("Lock released successfully!")
+                            st.stop()
+                        else:
+                            st.error("Cannot release lock - not owned by this session")
+                    else:
+                        st.warning("No lock found to release")
+                        st.session_state.management_lock_acquired = False
+                except Exception as e:
+                    st.error(f"Error releasing lock: {e}")
+            
+            st.divider()
+        
         st.header("Select Horse")
         
         if horse_list.empty:
@@ -185,7 +360,17 @@ def main():
             status_display = get_status_display(row['status'])
             # Use normalized_horse_name if available, otherwise fall back to horse_name
             display_name = row.get('normalized_horse_name', row['horse_name'])
-            option = f"{display_name} (ID: {row['canonical_id']}) - {row['image_count']} images"
+            
+            # Add indicator for horses with no usable images
+            usable_count = row['usable_count']
+            total_count = row['image_count']
+            
+            if usable_count == 0:
+                # Add red circle with line through it for no usable images
+                option = f"🚫 {display_name} (ID: {row['canonical_id']}) - {usable_count}/{total_count} usable"
+            else:
+                option = f"{display_name} (ID: {row['canonical_id']}) - {usable_count}/{total_count} usable"
+            
             horse_options.append((option, row['canonical_id'], status_display))
         
         # Display horses with status indicators
@@ -276,7 +461,7 @@ def main():
     st.subheader("Image Management")
     
     # Create tabs for different operations
-    tab1, tab2, tab3 = st.tabs(["Status Management", "Canonical ID Assignment", "Horse Name Management"])
+    tab1, tab2, tab3, tab4 = st.tabs(["Status Management", "Canonical ID Assignment", "Horse Name Management", "Detection Management"])
     
     with tab1:
         # Status display and selector
@@ -620,6 +805,102 @@ def main():
                     
                 except Exception as e:
                     st.error(f"Error updating horse name: {e}")
+    
+    with tab4:
+        # Detection management
+        st.markdown("**Update horse detection status for images**")
+        st.caption("⚠️ This overrides the automatic detection results. Use carefully to correct obvious detection errors.")
+        
+        # Current detection info
+        col1, col2 = st.columns([1, 1])
+        
+        with col1:
+            # Get current detection status for the canonical ID
+            detection_counts = horse_images['num_horses_detected'].value_counts()
+            st.markdown("**Current Detection Status:**")
+            for detection, count in detection_counts.items():
+                st.markdown(f"- {detection}: {count} images")
+        
+        with col2:
+            # Detection selector
+            new_detection = st.selectbox(
+                "Set new detection status:",
+                options=["NONE", "SINGLE", "MULTIPLE"],
+                help="NONE = No horses detected, SINGLE = One horse detected, MULTIPLE = Multiple horses detected"
+            )
+            
+            st.markdown(f"**Will set to:** {new_detection}")
+        
+        # Detection action buttons
+        col1, col2 = st.columns([1, 1])
+        
+        with col1:
+            if st.button("Apply Detection to All Images", type="secondary", use_container_width=True):
+                # Update detection for all images with this canonical_id
+                try:
+                    # Read fresh data to avoid conflicts
+                    fresh_df = pd.read_csv(manifest_file_path, dtype={
+                        'message_id': str,
+                        'canonical_id': 'Int64',
+                        'original_canonical_id': 'Int64',
+                        'filename': str
+                    })
+                    
+                    # Update detection for matching canonical_id
+                    mask = fresh_df['canonical_id'] == selected_canonical_id
+                    affected_count = mask.sum()
+                    
+                    fresh_df.loc[mask, 'num_horses_detected'] = new_detection
+                    
+                    # Save back to file with validation
+                    if save_manifest_with_validation(fresh_df, manifest_file_path):
+                        # Clear cache to reflect changes
+                        st.cache_data.clear()
+                    else:
+                        return  # Stop execution if validation fails
+                    
+                    st.success(f"✅ Updated detection to '{new_detection}' for {affected_count} images")
+                    st.rerun()
+                    
+                except Exception as e:
+                    st.error(f"Error updating detection: {e}")
+        
+        with col2:
+            selected_displayed_images = st.session_state.selected_images & set(display_images['filename'].tolist())
+            button_disabled = len(selected_displayed_images) == 0
+            
+            if st.button("Apply Detection to Selected Images", type="primary", disabled=button_disabled, use_container_width=True):
+                # Update detection for selected images only
+                try:
+                    # Read fresh data to avoid conflicts
+                    fresh_df = pd.read_csv(manifest_file_path, dtype={
+                        'message_id': str,
+                        'canonical_id': 'Int64',
+                        'original_canonical_id': 'Int64',
+                        'filename': str
+                    })
+                    
+                    # Update detection for selected images
+                    mask = fresh_df['filename'].isin(selected_displayed_images)
+                    affected_count = mask.sum()
+                    
+                    fresh_df.loc[mask, 'num_horses_detected'] = new_detection
+                    
+                    # Save back to file with validation
+                    if save_manifest_with_validation(fresh_df, manifest_file_path):
+                        # Clear cache to reflect changes
+                        st.cache_data.clear()
+                    else:
+                        return  # Stop execution if validation fails
+                    
+                    # Clear selection after successful update
+                    st.session_state.selected_images = set()
+                    
+                    st.success(f"✅ Updated detection to '{new_detection}' for {affected_count} selected images")
+                    st.rerun()
+                    
+                except Exception as e:
+                    st.error(f"Error updating detection: {e}")
     
     # Display image gallery
     st.subheader(f"Images ({len(display_images)} shown)")

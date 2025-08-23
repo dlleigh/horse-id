@@ -6,14 +6,12 @@ import json # For safely handling segmentation data
 
 # --- Load Configuration ---
 try:
-    with open('config.yml', 'r') as f:
-        config = yaml.safe_load(f)
-except FileNotFoundError:
-    print("Error: config.yaml not found. Please ensure the configuration file exists.")
+    from config_utils import load_config, get_data_root
+    config = load_config()
+    DATA_ROOT = get_data_root(config)
+except Exception as e:
+    print(f"Error loading configuration: {e}")
     exit()
-
-# --- Use the config values ---
-DATA_ROOT = os.path.expanduser(config['paths']['data_root'])
 IMAGE_DIR = config['paths']['dataset_dir'].format(data_root=DATA_ROOT)
 # Use the final merged manifest as the data source
 # MANIFEST_FILE = config['paths']['detected_manifest_file'].format(data_root=DATA_ROOT) # Will be dynamic

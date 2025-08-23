@@ -1,38 +1,21 @@
 import os
-import yaml
-import pickle
 import pandas as pd
-import numpy as np
-import torch
-import timm
 from datetime import datetime
-import csv # For logging similarity scores
 from tqdm import tqdm
-from itertools import combinations
-from collections import defaultdict
-import torchvision.transforms as T
 import re
 import sys
 
-from wildlife_tools.features import DeepFeatures
-from wildlife_tools.similarity import CosineSimilarity
-from wildlife_tools.data import ImageDataset
-
 # --- Load Configuration ---
-with open('config.yml', 'r') as f:
-    config = yaml.safe_load(f)
+from config_utils import load_config, get_data_root
 
-# --- Use the config values ---
-DATA_ROOT = os.path.expanduser(config['paths']['data_root'])
+config = load_config()
+DATA_ROOT = get_data_root(config)
 IMAGE_DIR = config['paths']['dataset_dir'].format(data_root=DATA_ROOT)
 # Reads from the detector's output, writes to the final merged file
 INPUT_MANIFEST_FILE = config['paths']['detected_manifest_file'].format(data_root=DATA_ROOT)
 OUTPUT_MANIFEST_FILE = config['paths']['merged_manifest_file'].format(data_root=DATA_ROOT)
-MERGE_RESULTS_FILE = config['paths']['merge_results_file'].format(data_root=DATA_ROOT)
-SIMILARITY_THRESHOLD = config['similarity']['merge_threshold']
 HORSE_HERDS_FILE = config['paths']['horse_herds_file'].format(data_root=DATA_ROOT)
-FEATURES_DIR = config['paths']['features_dir'].format(data_root=DATA_ROOT)
-FEATURES_FILE = os.path.join(FEATURES_DIR, 'database_deep_features.pkl')
+# Note: Features and similarity matching removed - recurring names require manual review
 
 
 def load_recurring_names():
@@ -168,219 +151,12 @@ def auto_merge_non_recurring_names(output_df, recurring_base_names):
     return output_df
 
 
-def load_global_similarity_system():
-    """Loads the global Wildlife-mega-L-384 model for similarity computation."""
-    print("Loading global Wildlife-mega-L-384 similarity system...")
-    
-    # Create the global model extractor
-    backbone = timm.create_model('hf-hub:BVRA/wildlife-mega-L-384', num_classes=0, pretrained=True)
-    extractor = DeepFeatures(backbone, num_workers=0)
-    
-    # Create the similarity function
-    similarity_function = CosineSimilarity()
-    
-    # Create the transform (matching production system)
-    transform = T.Compose([
-        T.Resize(size=(384, 384)),
-        T.ToTensor(),
-        T.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)),
-    ])
-    
-    return extractor, similarity_function, transform
+# Similarity matching functions removed - recurring names handled manually
 
-def load_preextracted_features(manifest_df):
-    """
-    Load pre-extracted features and create a filename-to-feature mapping.
-    Returns (features_map, missing_files) where features_map is {filename: feature_index}
-    and missing_files is a set of filenames not found in pre-extracted features.
-    """
-    features_map = {}
-    missing_files = set()
-    database_features = None
-    filenames_order = None
-    
-    if not os.path.exists(FEATURES_FILE):
-        print(f"Warning: Pre-extracted features file not found at {FEATURES_FILE}")
-        print("All features will be extracted on-the-fly.")
-        return {}, set(manifest_df['filename'].unique()), None
-    
-    try:
-        print(f"Loading pre-extracted features from {FEATURES_FILE}...")
-        with open(FEATURES_FILE, 'rb') as f:
-            data = pickle.load(f)
-        
-        # Handle different possible formats of saved features
-        if isinstance(data, dict) and 'features' in data and 'filenames' in data:
-            # Format: {'features': tensor, 'filenames': list}
-            database_features = data['features']
-            filenames_order = data['filenames']
-        elif isinstance(data, tuple) and len(data) == 2:
-            # Format: (features_tensor, filenames_list)
-            database_features, filenames_order = data
-        elif hasattr(data, 'shape'):
-            # Format: just the features tensor - try to reconstruct filenames from manifest
-            database_features = data
-            print("Warning: Features file contains only tensor data, no filename mapping.")
-            print("Will attempt to match features to manifest order, but this may be unreliable.")
-            # This is a fallback - we'll need to match by manifest order
-            single_horse_files = manifest_df[manifest_df['num_horses_detected'] == 'SINGLE']['filename'].tolist()
-            if len(single_horse_files) == database_features.shape[0]:
-                filenames_order = single_horse_files
-                print(f"Successfully matched {len(filenames_order)} features to manifest files.")
-            else:
-                print(f"Feature count ({database_features.shape[0]}) doesn't match SINGLE horse count ({len(single_horse_files)}).")
-                return {}, set(manifest_df['filename'].unique()), None
-        elif hasattr(data, '__class__') and 'FeatureDataset' in str(type(data)):
-            # Format: FeatureDataset from wildlife_tools
-            print("Found FeatureDataset from wildlife_tools - extracting features and filenames...")
-            try:
-                # FeatureDataset should have features and associated metadata
-                database_features = data.features  # Get the actual feature tensor
-                # Try to get filenames from the dataset
-                if hasattr(data, 'df') and 'path' in data.df.columns:
-                    filenames_order = data.df['path'].tolist()
-                elif hasattr(data, 'df') and 'filename' in data.df.columns:
-                    filenames_order = data.df['filename'].tolist()
-                elif hasattr(data, 'df') and 'image_id' in data.df.columns:
-                    filenames_order = data.df['image_id'].tolist()
-                else:
-                    print("Warning: Could not extract filenames from FeatureDataset.")
-                    # Fallback to manifest order
-                    single_horse_files = manifest_df[manifest_df['num_horses_detected'] == 'SINGLE']['filename'].tolist()
-                    if len(single_horse_files) == len(database_features):
-                        filenames_order = single_horse_files
-                        print(f"Using manifest order as fallback - matched {len(filenames_order)} files.")
-                    else:
-                        print(f"Feature count ({len(database_features)}) doesn't match SINGLE horse count ({len(single_horse_files)}).")
-                        return {}, set(manifest_df['filename'].unique()), None
-                
-                print(f"Successfully extracted {len(database_features)} features from FeatureDataset.")
-            except Exception as e:
-                print(f"Error extracting from FeatureDataset: {e}")
-                return {}, set(manifest_df['filename'].unique()), None
-        else:
-            print(f"Warning: Unrecognized features file format: {type(data)}")
-            return {}, set(manifest_df['filename'].unique()), None
-        
-        if filenames_order is None:
-            print("Could not determine filename order from features file.")
-            return {}, set(manifest_df['filename'].unique()), None
-        
-        # Create filename to feature index mapping
-        for idx, filename in enumerate(filenames_order):
-            features_map[filename] = idx
-        
-        # Find files in manifest that don't have pre-extracted features
-        manifest_files = set(manifest_df['filename'].unique())
-        cached_files = set(filenames_order)
-        missing_files = manifest_files - cached_files
-        
-        print(f"Loaded pre-extracted features for {len(cached_files)} files.")
-        if missing_files:
-            print(f"Found {len(missing_files)} files without pre-extracted features - will extract on-the-fly.")
-        
-        return features_map, missing_files, database_features
-        
-    except Exception as e:
-        print(f"Error loading pre-extracted features: {e}")
-        print("Will extract all features on-the-fly.")
-        return {}, set(manifest_df['filename'].unique()), None
 
-def check_similarity(extractor, similarity_function, transform, df_a, df_b, features_map=None, missing_files=None, database_features=None):
-    """
-    Checks if two groups of images are a match using the global Wildlife-mega-L-384 model.
-    Uses pre-extracted features when available, falls back to on-the-fly extraction when needed.
-    Returns (is_match, max_similarity_score).
-    """
-    overall_max_similarity = np.nan
-    if df_a.empty or df_b.empty:
-        return False, overall_max_similarity
 
-    try:
-        # Get features for group A
-        features_a = get_features_for_group(df_a, extractor, transform, features_map, missing_files, database_features)
-        
-        # Get features for group B
-        features_b = get_features_for_group(df_b, extractor, transform, features_map, missing_files, database_features)
-        
-        if features_a is None or features_b is None:
-            print(f"    Could not extract features for one or both groups.")
-            return False, overall_max_similarity
-        
-        # Compute similarity matrix
-        similarity_matrix = similarity_function(features_a, features_b)
-        
-        if similarity_matrix is None or similarity_matrix.size == 0:
-            return False, overall_max_similarity
 
-        # Match if any single pair is above threshold
-        if similarity_matrix.size > 0:
-            overall_max_similarity = np.max(similarity_matrix)
-            print(f"    Max similarity found across all pairs: {overall_max_similarity:.4f} (threshold: {SIMILARITY_THRESHOLD})")
-            return overall_max_similarity >= SIMILARITY_THRESHOLD, overall_max_similarity
-        else:
-            print(f"    Similarity matrix is empty, no match.")
-            return False, overall_max_similarity
-            
-    except Exception as e:
-        print(f"    Error during similarity check: {e}")
-        return False, overall_max_similarity
 
-def get_features_for_group(df_group, extractor, transform, features_map=None, missing_files=None, database_features=None):
-    """
-    Get features for a group of images, using pre-extracted features when available
-    and falling back to on-the-fly extraction when needed.
-    """
-    if features_map is None or missing_files is None or database_features is None:
-        # No pre-extracted features available, extract on-the-fly
-        return extract_features_on_the_fly(df_group, extractor, transform)
-    
-    filenames = df_group['filename'].tolist()
-    
-    # Check if all files have pre-extracted features
-    all_cached = all(filename in features_map for filename in filenames)
-    
-    if all_cached:
-        # Use pre-extracted features
-        print(f"    Using pre-extracted features for {len(filenames)} images")
-        feature_indices = [features_map[filename] for filename in filenames]
-        return database_features[feature_indices]
-    else:
-        # Some files missing from cache, extract on-the-fly
-        missing_in_group = [f for f in filenames if f in missing_files]
-        print(f"    Extracting features on-the-fly for {len(missing_in_group)} missing images: {missing_in_group}")
-        return extract_features_on_the_fly(df_group, extractor, transform)
-
-def extract_features_on_the_fly(df_group, extractor, transform):
-    """
-    Extract features on-the-fly for a group of images.
-    """
-    try:
-        dataset = ImageDataset(df_group, col_label='canonical_id', root=IMAGE_DIR, col_path='filename', transform=transform)
-        features = extractor(dataset)
-        return features
-    except Exception as e:
-        print(f"    Error extracting features on-the-fly: {e}")
-        return None
-
-def find_connected_components(graph):
-    """Finds all connected components in a graph using BFS."""
-    visited = set()
-    components = []
-    for node in graph:
-        if node not in visited:
-            component = []
-            q = [node]
-            visited.add(node)
-            while q:
-                current = q.pop(0)
-                component.append(current)
-                for neighbor in graph[current]:
-                    if neighbor not in visited:
-                        visited.add(neighbor)
-                        q.append(neighbor)
-            components.append(component)
-    return components
 
 def validate_canonical_id_consistency(df):
     """
@@ -426,9 +202,6 @@ def main():
     # Load recurring names from horse herds CSV file (output of parse_horse_herds.py)
     recurring_base_names = load_recurring_names()
     
-    # Load global similarity system (Wildlife-mega-L-384 model)
-    extractor, similarity_function, transform = load_global_similarity_system()
-    
     # INPUT_MANIFEST_FILE is config['paths']['detected_manifest_file']
     # OUTPUT_MANIFEST_FILE is config['paths']['merged_manifest_file'] (this script's output)
     print(f"Reading detected manifest: {INPUT_MANIFEST_FILE}")
@@ -438,9 +211,7 @@ def main():
         print(f"Error: Detected manifest file not found at {INPUT_MANIFEST_FILE}. Cannot proceed.")
         return
 
-    # Load pre-extracted features if available
-    print(f"\n=== Loading pre-extracted features ===")
-    features_map, missing_files, database_features = load_preextracted_features(detected_df)
+    # Note: Pre-extracted features no longer needed - similarity matching removed
 
     output_df = detected_df.copy()
 
@@ -464,10 +235,13 @@ def main():
         previous_merges_df = pd.read_csv(OUTPUT_MANIFEST_FILE, dtype={'message_id': str, 'filename': str})
 
         if not previous_merges_df.empty:
-            # Merge previous canonical_id and last_merged_timestamp into output_df
+            # Merge previous canonical_id, last_merged_timestamp, normalized_horse_name, status, and num_horses_detected into output_df
             cols_to_carry = ['filename']
             if 'canonical_id' in previous_merges_df.columns: cols_to_carry.append('canonical_id')
             if 'last_merged_timestamp' in previous_merges_df.columns: cols_to_carry.append('last_merged_timestamp')
+            if 'normalized_horse_name' in previous_merges_df.columns: cols_to_carry.append('normalized_horse_name')
+            if 'status' in previous_merges_df.columns: cols_to_carry.append('status')
+            if 'num_horses_detected' in previous_merges_df.columns: cols_to_carry.append('num_horses_detected')
             
             temp_df = pd.merge(output_df,
                                previous_merges_df[cols_to_carry],
@@ -481,6 +255,15 @@ def main():
             if 'last_merged_timestamp_prev' in temp_df.columns:
                 temp_df['last_merged_timestamp_prev'] = pd.to_datetime(temp_df['last_merged_timestamp_prev'], errors='coerce').fillna(pd.NaT)
                 output_df['last_merged_timestamp'] = temp_df['last_merged_timestamp_prev'].fillna(temp_df['last_merged_timestamp'])
+            # Preserve manually corrected normalized_horse_name values from previous merges
+            if 'normalized_horse_name_prev' in temp_df.columns:
+                output_df['normalized_horse_name'] = temp_df['normalized_horse_name_prev'].fillna(temp_df['normalized_horse_name'])
+            # Preserve manually set status values from previous merges
+            if 'status_prev' in temp_df.columns:
+                output_df['status'] = temp_df['status_prev'].fillna(temp_df['status'])
+            # Preserve manually corrected detection values from previous merges
+            if 'num_horses_detected_prev' in temp_df.columns:
+                output_df['num_horses_detected'] = temp_df['num_horses_detected_prev'].fillna(temp_df['num_horses_detected'])
 
     # Ensure correct dtypes after potential merges
     output_df['canonical_id'] = pd.to_numeric(output_df['canonical_id'], errors='coerce').astype('Int64')
@@ -491,30 +274,8 @@ def main():
     print("\n=== Auto-merging non-recurring horse names ===")
     output_df = auto_merge_non_recurring_names(output_df, recurring_base_names)
 
-    # --- Load existing merge results ---
-    comparison_results_cache = {} # Key: frozenset({cid_a, cid_b}), Value: dict of log entry
-    if os.path.exists(MERGE_RESULTS_FILE):
-        print(f"Loading existing merge results from: {MERGE_RESULTS_FILE}")
-        try:
-            existing_results_df = pd.read_csv(MERGE_RESULTS_FILE, dtype={'canonical_id_a': str, 'canonical_id_b': str})
-            for _, row in existing_results_df.iterrows():
-                try:
-                    cid_a = int(float(row['canonical_id_a'])) # Handle potential float strings
-                    cid_b = int(float(row['canonical_id_b']))
-                    pair_key = frozenset({cid_a, cid_b})
-                    # Store the entire row as a dict, ensuring latest timestamp wins if duplicates somehow exist
-                    # (though ideally, keys should be unique in the CSV)
-                    current_timestamp = pd.to_datetime(row['timestamp'])
-                    if pair_key not in comparison_results_cache or \
-                       pd.to_datetime(comparison_results_cache[pair_key]['timestamp']) < current_timestamp:
-                        comparison_results_cache[pair_key] = row.to_dict()
-                except (ValueError, TypeError) as e:
-                    print(f"  Warning: Skipping row in merge_results.csv due to parsing error: {row.to_dict()}, Error: {e}")
-        except Exception as e:
-            print(f"  Warning: Could not load or parse {MERGE_RESULTS_FILE}: {e}")
-
-    merge_results_headers = ['timestamp', 'horse_name', 'canonical_id_a', 'canonical_id_b', 'message_id_a', 'message_id_b',
-                   'max_similarity', 'is_match'] # Updated log headers
+    # Track recurring names found for manual review summary
+    recurring_names_found = []
 
     # Filter for only single horses, as multiple/none are ambiguous
     df_single = output_df[output_df['num_horses_detected'] == 'SINGLE'].copy()
@@ -522,110 +283,46 @@ def main():
     # Group by the normalized horse name
     grouped_by_name = df_single.groupby('normalized_horse_name')
     
-    print(f"\n=== Detailed analysis for recurring horse names ===")
+    print(f"\n=== Checking for recurring horse names (manual review needed) ===")
 
     for name, group in tqdm(grouped_by_name, desc="Processing names"):
-        # Only perform detailed analysis for recurring names
+        # Only check recurring names - non-recurring names were already auto-merged
         if not is_recurring_name(name, recurring_base_names):
-            continue  # Skip non-recurring names as they were already auto-merged
-        # CHANGED: The unit of comparison is now message_id, not canonical_id.
-        unique_message_ids = group['message_id'].unique()
-
-        if len(unique_message_ids) <= 1:
-            continue # No other messages to compare for this name
-
-        print(f"\nProcessing '{name}' with {len(unique_message_ids)} potential identities across different messages.")
-        # The graph still connects canonical_ids, as they are the entities we want to merge.
-        graph = defaultdict(list)
+            continue  # Skip non-recurring names
         
-        # CHANGED: Create pairs of message_ids to compare.
-        message_id_pairs = combinations(unique_message_ids, 2)
+        # Get unique canonical IDs for this recurring name
+        unique_canonical_ids = group['canonical_id'].unique()
+        
+        if len(unique_canonical_ids) <= 1:
+            continue # Only one canonical ID, no manual review needed
+        
+        # Multiple canonical IDs found for recurring name - needs manual review
+        print(f"\n⚠️  MANUAL REVIEW NEEDED: Found recurring horse name '{name}' with {len(unique_canonical_ids)} different canonical IDs")
+        
+        for canonical_id in unique_canonical_ids:
+            canonical_group = group[group['canonical_id'] == canonical_id]
+            message_ids = canonical_group['message_id'].unique()
+            image_count = len(canonical_group)
+            print(f"  - Canonical ID {canonical_id}: {image_count} images from {len(message_ids)} email(s)")
+        
+        # Add to summary for final output
+        recurring_names_found.append({
+            'name': name,
+            'canonical_ids': sorted(unique_canonical_ids),
+            'total_images': len(group)
+        })
 
-        # Build the graph of similar identities by comparing message_id image sets
-        for msg_id_a, msg_id_b in message_id_pairs:
-            # CHANGED: Get all images for each message_id.
-            df_a = group[group['message_id'] == msg_id_a]
-            df_b = group[group['message_id'] == msg_id_b]
-
-            # Get the CURRENT canonical_id for these message groups from output_df
-            # These IDs might already reflect previous merges.
-            canonical_id_a = df_a['canonical_id'].iloc[0]
-            canonical_id_b = df_b['canonical_id'].iloc[0]
-
-            # CHANGED: If they already have the same ID, no need to compare or merge.
-            if canonical_id_a == canonical_id_b:
-                continue
-
-            # Ensure CIDs are integers for cache key
-            try:
-                cid_a_int = int(canonical_id_a)
-                cid_b_int = int(canonical_id_b)
-            except (ValueError, TypeError):
-                print(f"  Warning: Invalid canonical IDs ({canonical_id_a}, {canonical_id_b}) for pair ('{msg_id_a}', '{msg_id_b}'). Skipping this pair.")
-                continue
-            
-            pair_key = frozenset({cid_a_int, cid_b_int})
-            is_match_for_graph = False
-
-            if pair_key in comparison_results_cache:
-                cached_result = comparison_results_cache[pair_key]
-                is_match_for_graph = str(cached_result.get('is_match', 'false')).lower() == 'true'
-                score_str = cached_result.get('max_similarity', 'N/A')
-                print(f"  Using cached result for CIDs ({cid_a_int}, {cid_b_int}) for messages ('{msg_id_a}', '{msg_id_b}'): {'Match' if is_match_for_graph else 'No Match'}, Score: {score_str}")
-            else:
-                print(f"  Comparing message '{msg_id_a}' (CID: {cid_a_int}) vs message '{msg_id_b}' (CID: {cid_b_int})...")
-                is_match_computed, score_computed_float = check_similarity(extractor, similarity_function, transform, df_a, df_b, features_map, missing_files, database_features)
-                is_match_for_graph = is_match_computed
-                score_str = f"{score_computed_float:.4f}" if not np.isnan(score_computed_float) else 'N/A'
-
-                # Update cache with new result
-                new_log_entry = {
-                    'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                    'horse_name': name,  # This is now the normalized_horse_name
-                    'canonical_id_a': cid_a_int,
-                    'canonical_id_b': cid_b_int,
-                    'message_id_a': msg_id_a,
-                    'message_id_b': msg_id_b,
-                    'max_similarity': score_str,
-                    'is_match': is_match_computed
-                }
-                comparison_results_cache[pair_key] = new_log_entry
-
-            if is_match_for_graph:
-                print(f"    --> Graph edge added between canonical IDs {cid_a_int} and {cid_b_int} based on messages '{msg_id_a}' & '{msg_id_b}'.")
-                graph[cid_a_int].append(cid_b_int)
-                graph[cid_b_int].append(cid_a_int)
-
-        # This part remains the same: find clusters of connected canonical_ids and merge them.
-        components = find_connected_components(graph)
-        if not components:
-            print(f"  No merges found for '{name}'.")
-            continue
-
-        print(f"  Found {len(components)} component(s) to merge for '{name}'.")
-        for component in components:
-            if len(component) > 1:
-                # Choose the lowest ID as the new canonical ID for the whole group
-                final_id = min(component)
-                ids_to_merge = [i for i in component if i != final_id]
-                print(f"    Merging IDs {ids_to_merge} into {final_id}.")
-                 # --- NEW: Update audit columns ---
-                merge_timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                rows_to_update_mask = output_df['canonical_id'].isin(ids_to_merge)
-                # Update the canonical_id for the merged rows
-                output_df.loc[rows_to_update_mask, 'canonical_id'] = final_id
-                # Set the timestamp for the merged rows
-                output_df.loc[rows_to_update_mask, 'last_merged_timestamp'] = pd.to_datetime(merge_timestamp)
-
-    # --- Save all comparison results (old and new) to merge_results.csv ---
-    print(f"\nSaving all comparison results to: {MERGE_RESULTS_FILE}")
-    if comparison_results_cache: # Check if there's anything to save
-        results_to_save_df = pd.DataFrame(list(comparison_results_cache.values()))
-        results_to_save_df.to_csv(MERGE_RESULTS_FILE, index=False, columns=merge_results_headers)
-    else: # If cache is empty (e.g. first run and no comparisons made, or file was empty)
-        with open(MERGE_RESULTS_FILE, 'w', newline='') as f: # Create empty file with headers
-            writer = csv.DictWriter(f, fieldnames=merge_results_headers)
-            writer.writeheader()
+    # Add manual review summary
+    if recurring_names_found:
+        print(f"\n⚠️  MANUAL REVIEW SUMMARY - {len(recurring_names_found)} recurring horse names need attention:")
+        print("\nUse manage_horses.py to review and merge the following horses if they represent the same animal:")
+        for horse in recurring_names_found:
+            canonical_ids_str = ', '.join(map(str, horse['canonical_ids']))
+            print(f"  - '{horse['name']}' ({horse['total_images']} images) - Canonical IDs: {canonical_ids_str}")
+        print(f"\nTo review: streamlit run manage_horses.py")
+        print("Select each horse name and use the 'Canonical ID Assignment' tab to merge duplicate identities.")
+    else:
+        print("\n✅ No recurring horse names found requiring manual review.")
 
     # Validate the final output before saving
     if not validate_canonical_id_consistency(output_df):

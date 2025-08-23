@@ -15,14 +15,12 @@ except ImportError:
 
 # --- Load Configuration ---
 try:
-    with open('config.yml', 'r') as f:
-        config = yaml.safe_load(f)
-except FileNotFoundError:
-    print("Error: config.yml not found. Please ensure the configuration file exists in the same directory.")
+    from config_utils import load_config, get_data_root
+    config = load_config()
+    DATA_ROOT = get_data_root(config)
+except Exception as e:
+    print(f"Error loading configuration: {e}")
     exit()
-
-# --- Use the config values ---
-DATA_ROOT = os.path.expanduser(config['paths']['data_root'])
 DATASET_DIR = config['paths']['dataset_dir'].format(data_root=DATA_ROOT)
 MANIFEST_FILE = config['paths']['manifest_file'].format(data_root=DATA_ROOT)
 

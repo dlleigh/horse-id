@@ -11,17 +11,14 @@ CONFIG_FILE = 'config.yml'
 
 def load_config():
     """Loads the YAML configuration file."""
-    if not os.path.exists(CONFIG_FILE):
-        print(f"Error: Configuration file '{CONFIG_FILE}' not found.")
-        sys.exit(1)
-    with open(CONFIG_FILE, 'r') as f:
-        config = yaml.safe_load(f)
-    return config
+    from config_utils import load_config as load_cfg
+    return load_cfg()
 
 def setup_paths(config):
     """Resolves and validates paths from the configuration."""
     try:
-        data_root = os.path.expanduser(config['paths']['data_root'])
+        from config_utils import get_data_root
+        data_root = get_data_root(config)
         merged_manifest_file = config['paths']['merged_manifest_file'].format(data_root=data_root)
         features_dir = config['paths']['features_dir'].format(data_root=data_root)
         horse_herds_file = config['paths']['horse_herds_file'].format(data_root=data_root)

@@ -23,11 +23,10 @@ from datetime import datetime
 from typing import List, Dict, Optional, Tuple
 
 # --- Load Configuration ---
-with open('config.yml', 'r') as f:
-    config = yaml.safe_load(f)
+from config_utils import load_config, get_data_root
 
-# --- Use the config values ---
-DATA_ROOT = os.path.expanduser(config['paths']['data_root'])
+config = load_config()
+DATA_ROOT = get_data_root(config)
 INPUT_MANIFEST_FILE = config['paths']['manifest_file'].format(data_root=DATA_ROOT)
 OUTPUT_MANIFEST_FILE = config['paths']['normalized_manifest_file'].format(data_root=DATA_ROOT)
 HORSE_HERDS_FILE = config['paths']['horse_herds_file'].format(data_root=DATA_ROOT)

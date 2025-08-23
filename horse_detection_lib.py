@@ -12,8 +12,8 @@ from typing import Tuple, Dict, Any, List
 
 def load_detection_config() -> Dict[str, Any]:
     """Load detection configuration from config.yml"""
-    with open('config.yml', 'r') as f:
-        config = yaml.safe_load(f)
+    from config_utils import load_config
+    config = load_config()
     return {
         'depth_analysis': config['detection']['depth_analysis'],
         'edge_cropping': config['detection']['edge_cropping'],
