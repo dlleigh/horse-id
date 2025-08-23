@@ -66,6 +66,7 @@ def prompt_directory_info():
     """Prompt user for directory ingestion information."""
     print("\n📁 Directory-based ingestion selected")
     print("This will process images organized in subdirectories (one per horse).")
+    print("Dates will be extracted from each image file's metadata.")
     print()
     
     # Get directory path
@@ -97,28 +98,17 @@ def prompt_directory_info():
         
         break
     
-    # Get date
-    while True:
-        date_str = input("Enter the date for these photos (YYYYMMDD): ").strip()
-        
-        try:
-            # Validate date format
-            datetime.strptime(date_str, '%Y%m%d')
-            break
-        except ValueError:
-            print("Error: Invalid date format. Please use YYYYMMDD (e.g., 20240315).")
-    
-    return parent_dir, date_str
+    return parent_dir
 
-def run_directory_ingestion(parent_dir=None, date_str=None, interactive=True):
+def run_directory_ingestion(parent_dir=None, interactive=True):
     """Run directory-based ingestion with optional parameters."""
     
-    if interactive and (not parent_dir or not date_str):
-        parent_dir, date_str = prompt_directory_info()
+    if interactive and not parent_dir:
+        parent_dir = prompt_directory_info()
     
     # Validate parameters for non-interactive mode
-    if not parent_dir or not date_str:
-        raise ValueError("Directory path and date are required for directory ingestion")
+    if not parent_dir:
+        raise ValueError("Directory path is required for directory ingestion")
     
     if not os.path.isdir(parent_dir):
         raise ValueError(f"Directory not found: {parent_dir}")
@@ -133,13 +123,13 @@ def run_directory_ingestion(parent_dir=None, date_str=None, interactive=True):
     print(f"🚀 Starting: Directory-based image ingestion")
     print(f"   Script: ingest_from_dir.py")
     print(f"   Directory: {parent_dir}")
-    print(f"   Date: {date_str}")
+    print(f"   Dates will be extracted from image metadata")
     update_lock_stage("ingest_from_dir")
     print(f"{'='*60}")
     
     try:
-        # Create input for the script
-        script_input = f"{parent_dir}\n{date_str}\n"
+        # Create input for the script (only directory path)
+        script_input = f"{parent_dir}\n"
         
         # Run the script with input
         result = subprocess.run([
@@ -165,7 +155,7 @@ def main():
 Examples:
   %(prog)s                                    # Directory ingestion (interactive)
   %(prog)s --email                            # Email ingestion
-  %(prog)s --dir --path /path/to/horses --date 20240315  # Non-interactive directory
+  %(prog)s --dir --path /path/to/horses       # Non-interactive directory
   %(prog)s --force                            # Force override existing locks
         """
     )
@@ -180,8 +170,6 @@ Examples:
     # Directory ingestion parameters
     parser.add_argument('--path', type=str,
                        help='Directory path for non-interactive directory ingestion')
-    parser.add_argument('--date', type=str,
-                       help='Date (YYYYMMDD) for non-interactive directory ingestion')
     
     # Lock management
     parser.add_argument('--force', action='store_true',
@@ -212,14 +200,8 @@ Examples:
     use_email = args.email
     use_directory = not use_email  # Default to directory if not email
     
-    # Validate directory parameters
-    if use_directory and args.path and not args.date:
-        parser.error("--date is required when --path is specified")
-    if use_directory and args.date and not args.path:
-        parser.error("--path is required when --date is specified")
-    
-    # Non-interactive mode requires both path and date
-    interactive_mode = use_directory and not (args.path and args.date)
+    # Non-interactive mode requires path
+    interactive_mode = use_directory and not args.path
     
     print("🐴 Horse Identification Pipeline")
     print("=" * 40)
@@ -233,7 +215,6 @@ Examples:
         else:
             print("   Interactive: No")
             print(f"   Directory: {args.path}")
-            print(f"   Date: {args.date}")
     
     print(f"🕐 Started: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     
@@ -248,7 +229,7 @@ Examples:
                 if interactive_mode:
                     run_directory_ingestion(interactive=True)
                 else:
-                    run_directory_ingestion(args.path, args.date, interactive=False)
+                    run_directory_ingestion(args.path, interactive=False)
             
             # Stage 2: Name normalization
             run_script("normalize_horse_names.py", "Horse name normalization", "normalize_names")
