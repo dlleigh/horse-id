@@ -70,13 +70,40 @@ def convert_heic_to_jpg(heic_path, jpg_path):
         return False
 
 
-def generate_message_id_for_subdir(subdir_path, date_str):
+def get_image_date(image_path):
+    """Extract date from image metadata, fallback to file modification time."""
+    try:
+        # Try to get EXIF date from image
+        with Image.open(image_path) as img:
+            exif = img._getexif()
+            if exif:
+                # Try common EXIF date tags
+                for tag in [36867, 36868, 306]:  # DateTimeOriginal, DateTimeDigitized, DateTime
+                    if tag in exif:
+                        date_str = exif[tag]
+                        # Parse EXIF date format "YYYY:MM:DD HH:MM:SS"
+                        date_obj = datetime.strptime(date_str.split(' ')[0], '%Y:%m:%d')
+                        return date_obj.strftime('%Y%m%d')
+    except Exception:
+        pass
+    
+    # Fallback to file modification time
+    try:
+        mod_time = os.path.getmtime(image_path)
+        date_obj = datetime.fromtimestamp(mod_time)
+        return date_obj.strftime('%Y%m%d')
+    except Exception:
+        # Ultimate fallback to current date
+        return datetime.now().strftime('%Y%m%d')
+
+
+def generate_message_id_for_subdir(subdir_path):
     """Generate deterministic message_id for a subdirectory."""
     # Create a hash of the absolute path for uniqueness
     path_hash = hashlib.md5(os.path.abspath(subdir_path).encode()).hexdigest()[:8]
     subdir_name = os.path.basename(subdir_path)
     safe_name = "".join(c if c.isalnum() else "_" for c in subdir_name)
-    return f"local-dir-{path_hash}-{safe_name}-{date_str}"
+    return f"local-dir-{path_hash}-{safe_name}"
 
 
 def get_existing_files_for_message_id(manifest_df, message_id):
@@ -100,13 +127,6 @@ def main():
             break
         print("Error: The provided path is not a valid directory. Please try again.")
 
-    while True:
-        email_date_str = input("Enter the date for these photos (YYYYMMDD): ").strip()
-        try:
-            datetime.strptime(email_date_str, '%Y%m%d')
-            break
-        except ValueError:
-            print("Error: Invalid date format. Please use YYYYMMDD.")
 
     # --- Process Subdirectories ---
     os.makedirs(DATASET_DIR, exist_ok=True)
@@ -131,7 +151,7 @@ def main():
         print(f"\n--- Processing horse: {horse_name} ---")
         
         # Generate message_id for this subdirectory
-        message_id = generate_message_id_for_subdir(subdir_path, email_date_str)
+        message_id = generate_message_id_for_subdir(subdir_path)
         
         # Check what files already exist for this message_id
         existing_files = get_existing_files_for_message_id(manifest_df, message_id)
@@ -168,6 +188,9 @@ def main():
             base, ext = os.path.splitext(original_filename)
             ext_lower = ext.lower()
 
+            # Get the date for this specific image
+            image_date = get_image_date(source_path)
+
             # Define the new filename for the dataset directory
             if ext_lower in ['.heic', '.heif']:
                 new_filename_on_disk = f"{message_id}-{base}.jpg"
@@ -191,7 +214,7 @@ def main():
             # --- Add to manifest ---
             new_rows.append({
                 'horse_name': horse_name,
-                'email_date': email_date_str,
+                'email_date': image_date,
                 'message_id': message_id,
                 'original_filename': original_filename,
                 'filename': new_filename_on_disk,
