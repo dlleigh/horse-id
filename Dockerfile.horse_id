@@ -26,6 +26,7 @@ RUN python -c "import timm; timm.create_model('hf-hub:BVRA/wildlife-mega-L-384',
 
 # Copy your application code and config file
 COPY horse_id.py ${LAMBDA_TASK_ROOT}/
+COPY config_utils.py ${LAMBDA_TASK_ROOT}/
 COPY config.yml ${LAMBDA_TASK_ROOT}/
 
 # Set the data root to a writable directory in Lambda's /tmp
