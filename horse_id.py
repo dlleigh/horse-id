@@ -240,7 +240,7 @@ def process_image_for_identification(image_url, twilio_account_sid=None, twilio_
         logger.info("Extracting features for query image...")
 
         logger.info("Attempting to create timm model backbone...")
-        backbone = timm.create_model('hf-hub:BVRA/wildlife-mega-L-384', pretrained=True, cache_dir='/tmp/model_cache')
+        backbone = timm.create_model('hf-hub:BVRA/wildlife-mega-L-384', pretrained=True, cache_dir='/opt/ml/model')
         logger.info("Timm model backbone created successfully.")
         extractor = DeepFeatures(backbone, num_workers=0)
         query_features = extractor(dataset_query_single)

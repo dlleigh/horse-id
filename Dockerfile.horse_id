@@ -22,7 +22,9 @@ RUN pip install \
     --target "${LAMBDA_TASK_ROOT}"
 
 # Pre-download the model into a specific cache directory within the image.
-RUN python -c "import timm; timm.create_model('hf-hub:BVRA/wildlife-mega-L-384', pretrained=True, cache_dir='/tmp/model_cache')"
+# Use /opt/ml/model instead of /tmp since /tmp is ephemeral in Lambda
+RUN mkdir -p /opt/ml/model && \
+    python -c "import timm; timm.create_model('hf-hub:BVRA/wildlife-mega-L-384', pretrained=True, cache_dir='/opt/ml/model')"
 
 # Copy your application code and config file
 COPY horse_id.py ${LAMBDA_TASK_ROOT}/
