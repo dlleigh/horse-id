@@ -102,3 +102,9 @@ docker build --platform linux/amd64 -f Dockerfile.responder -t horse-id-responde
 ## Data Integrity Rules
 
 - This is a critical data integrity rule for the system: All images with the same canonical_id MUST have the same normalized_horse_name.
+
+### Before Running Python Commands
+
+```bash
+# ALWAYS activate venv first
+source venv/bin/activate

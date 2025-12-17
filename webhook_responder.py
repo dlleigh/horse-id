@@ -9,6 +9,27 @@ from twilio.request_validator import RequestValidator
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
+def parse_herd_from_text(text):
+    """
+    Extract herd name from user's text message.
+    Returns the text as-is (stripped and lowercased for consistency),
+    or None if no text provided.
+
+    Args:
+        text: User's message text from Twilio Body parameter
+
+    Returns:
+        Herd name string (stripped, lowercased) or None
+    """
+    if not text:
+        return None
+
+    text = text.strip()
+    if not text:
+        return None
+
+    return text
+
 def webhook_handler(event, context):
     """
     Receives the initial webhook from Twilio, invokes the processor asynchronously,
@@ -60,7 +81,28 @@ def webhook_handler(event, context):
         logger.warning(f"Twilio request validation failed for URL: {request_url}, Signature: {twilio_signature}")
         return {'statusCode': 403, 'body': 'Forbidden: Invalid Twilio Signature.'}
     logger.info("Twilio request validation successful.")
-    
+
+    # Check if image is present
+    if 'MediaUrl0' not in post_vars:
+        logger.warning("No image attached to message")
+        return {
+            'statusCode': 200,
+            'headers': {'Content-Type': 'text/xml'},
+            'body': '<Response><Message>Error: Please send a horse photo for identification.</Message></Response>'
+        }
+
+    # Extract and parse herd name from text body
+    user_text = post_vars.get('Body', '')
+    herd_filter = parse_herd_from_text(user_text)
+    if herd_filter:
+        logger.info(f"Herd filter extracted: '{herd_filter}'")
+    else:
+        logger.info("No herd filter specified")
+
+    # Add herd_filter to the event payload for the processor
+    if 'twilio_herd_filter' not in event:
+        event['twilio_herd_filter'] = herd_filter
+
     processor_lambda_name = os.environ.get('PROCESSOR_LAMBDA_NAME')
     if not processor_lambda_name:
         logger.error("FATAL: PROCESSOR_LAMBDA_NAME environment variable not set.")

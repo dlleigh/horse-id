@@ -32,6 +32,14 @@ from wildlife_tools.similarity import CosineSimilarity
 CONFIG_FILE = 'config.yml'
 os.environ['MPLCONFIGDIR'] = '/tmp/matplotlib_cache'
 
+# --- Custom Exceptions ---
+class InvalidHerdError(ValueError):
+    """Raised when an invalid herd name is provided"""
+    def __init__(self, invalid_herd, valid_herds):
+        self.invalid_herd = invalid_herd
+        self.valid_herds = valid_herds
+        super().__init__(f"Invalid herd: {invalid_herd}")
+
 class Horses(datasets.WildlifeDataset):
     def __init__(self, root_dir, manifest_file_path):
         self.manifest_file_path = manifest_file_path
@@ -144,7 +152,7 @@ def format_horse_with_herd(horse_name, horse_herds_map):
     """
     if horse_name not in horse_herds_map:
         return f"{horse_name} - Herd unknown"  # No herd info available
-    
+
     herds = horse_herds_map[horse_name]
     if len(herds) == 1:
         return f"{horse_name} - {herds[0]}"
@@ -153,7 +161,54 @@ def format_horse_with_herd(horse_name, horse_herds_map):
     else:
         return f"{horse_name} - Herd unknown"
 
-def process_image_for_identification(image_url, twilio_account_sid=None, twilio_auth_token=None):
+def get_valid_herds(horse_herds_map):
+    """
+    Extract unique set of herd names from horse_herds_map.
+    Returns a sorted list of herd names for display/validation.
+
+    Args:
+        horse_herds_map: Dictionary mapping horse names to list of herds
+
+    Returns:
+        Sorted list of unique herd names
+    """
+    valid_herds = set()
+    for herds in horse_herds_map.values():
+        valid_herds.update(herds)
+    return sorted(valid_herds)
+
+def filter_by_herd(df, herd_filter, horse_herds_map):
+    """
+    Filter dataframe to only include horses from specified herd.
+    Since each horse belongs to exactly one herd, this is straightforward.
+
+    Args:
+        df: DataFrame with 'identity' column (normalized_horse_name)
+        herd_filter: Herd name to filter by (case-insensitive)
+        horse_herds_map: Dict mapping horse names to list of herds
+
+    Returns:
+        Filtered DataFrame
+    """
+    # Get horses that belong to the specified herd (case-insensitive)
+    valid_horses = set()
+    herd_filter_lower = herd_filter.lower()
+
+    for horse_name, herds in horse_herds_map.items():
+        # Since horses belong to exactly one herd, check if it matches
+        for herd in herds:
+            if herd.lower() == herd_filter_lower:
+                valid_horses.add(horse_name)
+                break
+
+    # Filter dataframe
+    filtered_df = df[df['identity'].isin(valid_horses)]
+
+    logger.info(f"Herd filter '{herd_filter}' reduced database from {len(df)} to {len(filtered_df)} horses")
+
+    return filtered_df
+
+def process_image_for_identification(image_url, twilio_account_sid=None, twilio_auth_token=None, herd_filter=None):
     """
     Core logic to download image, extract features, and identify horse.
     Returns a dictionary of prediction results.
@@ -195,10 +250,28 @@ def process_image_for_identification(image_url, twilio_account_sid=None, twilio_
     if horses_df_all.empty:
         raise ValueError("The horse catalogue is empty. Check manifest file and Horses class.")
 
-    dataset_database = ImageDataset(horses_df_all, horses_dataset_obj.root)
-    
     # Load horse herds mapping
     horse_herds_map = load_horse_herds(horse_herds_file)
+
+    # Apply herd filtering if specified
+    if herd_filter:
+        logger.info(f"Applying herd filter: '{herd_filter}'")
+
+        # Validate herd filter
+        valid_herds = get_valid_herds(horse_herds_map)
+        valid_herds_lower = [h.lower() for h in valid_herds]
+
+        if herd_filter.lower() not in valid_herds_lower:
+            # Invalid herd name - raise exception with valid herds list
+            logger.warning(f"Invalid herd filter: '{herd_filter}'")
+            raise InvalidHerdError(herd_filter, valid_herds)
+
+        horses_df_filtered = filter_by_herd(horses_df_all, herd_filter, horse_herds_map)
+        if horses_df_filtered.empty:
+            raise ValueError(f"No horses found in herd '{herd_filter}'. Please check the herd name.")
+        horses_df_all = horses_df_filtered
+
+    dataset_database = ImageDataset(horses_df_all, horses_dataset_obj.root)
 
     logger.info(f"Downloading image from {image_url}...")
     try:
@@ -265,6 +338,7 @@ def process_image_for_identification(image_url, twilio_account_sid=None, twilio_
         results = {
             "status": "success",
             "query_image_url": image_url,
+            "herd_filter": herd_filter,
             "predictions": []
         }
         logger.info("\n--- Predictions ---")        
@@ -344,6 +418,9 @@ def horse_id_processor_handler(event, context):
         logger.error("No image URL found in the payload. Aborting.")
         return {'statusCode': 400, 'body': 'No image URL found.'}
 
+    # Extract herd_filter from the event (added by webhook_responder)
+    herd_filter = event.get('twilio_herd_filter')
+
     try:
         # Get Twilio credentials from environment variables to pass to the image downloader
         config = load_config()
@@ -354,9 +431,13 @@ def horse_id_processor_handler(event, context):
         if not account_sid or not auth_token:
             raise ValueError("Twilio credentials (TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN) not found for processor.")
 
-        prediction_results = process_image_for_identification(image_url, twilio_account_sid=account_sid, twilio_auth_token=auth_token)
-        
-        response_message = "\nHorse Identification Results:\n"
+        prediction_results = process_image_for_identification(image_url, twilio_account_sid=account_sid, twilio_auth_token=auth_token, herd_filter=herd_filter)
+
+        # Build response message with herd context if applicable
+        response_message = "\n"
+        if prediction_results.get("herd_filter"):
+            response_message += f"Searched in {prediction_results['herd_filter']}:\n\n"
+        response_message += "Horse Identification Results:\n"
         for pred in prediction_results["predictions"]:
             # Use the formatted name with herd information
             horse_display = pred.get('identity_with_herd', pred['identity'])
@@ -380,6 +461,28 @@ def horse_id_processor_handler(event, context):
         message = client.messages.create(body=response_message, from_=twilio_sending_number, to=user_number)
         logger.info(f"Successfully sent SMS with SID: {message.sid}")
         return {'statusCode': 200, 'body': json.dumps({'message_sid': message.sid})}
+    except InvalidHerdError as e:
+        # Handle invalid herd name - send error message with valid herds list
+        logger.warning(f"Invalid herd filter: '{e.invalid_herd}'")
+
+        error_message = f"Sorry, I don't recognize the herd name '{e.invalid_herd}'.\n\nValid herds are:\n"
+        for herd in e.valid_herds:
+            error_message += f"  • {herd}\n"
+
+        try:
+            client = Client(account_sid, auth_token)
+            twilio_sending_number = incoming_payload.get('To')
+            user_number = incoming_payload.get('From')
+
+            if not twilio_sending_number or not user_number:
+                raise ValueError("To/From numbers not found in payload.")
+
+            message = client.messages.create(body=error_message, from_=twilio_sending_number, to=user_number)
+            logger.info(f"Sent error message for invalid herd with SID: {message.sid}")
+            return {'statusCode': 200, 'body': json.dumps({'message_sid': message.sid, 'error': 'invalid_herd'})}
+        except Exception as twilio_error:
+            logger.exception(f"Failed to send invalid herd error message: {twilio_error}")
+            return {'statusCode': 500, 'body': json.dumps({'error': f'Invalid herd and failed to notify user: {str(e)}'})}
     except Exception as e:
         logger.exception(f"An error occurred during horse identification processing: {e}")
         return {'statusCode': 500, 'body': json.dumps({'error': str(e)})}
