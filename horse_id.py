@@ -332,7 +332,15 @@ def process_image_for_identification(image_url, twilio_account_sid=None, twilio_
         # Filter features if herd filtering was applied
         if filtered_indices is not None:
             logger.info(f"Filtering features: selecting {len(filtered_indices)} vectors from {len(database_features_full)} total")
-            database_features = database_features_full[filtered_indices]
+            # Extract the underlying numpy array from FeatureDataset and filter it
+            filtered_features_array = database_features_full.features[filtered_indices]
+            # Create a new FeatureDataset with filtered features and metadata
+            from wildlife_tools.data import FeatureDataset
+            database_features = FeatureDataset(
+                features=filtered_features_array,
+                metadata=horses_df_all.reset_index(drop=True),  # Already filtered
+                col_label='identity'
+            )
         else:
             database_features = database_features_full
 
