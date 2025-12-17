@@ -254,6 +254,7 @@ def process_image_for_identification(image_url, twilio_account_sid=None, twilio_
     horse_herds_map = load_horse_herds(horse_herds_file)
 
     # Apply herd filtering if specified
+    filtered_indices = None  # Will store indices for filtering features
     if herd_filter:
         logger.info(f"Applying herd filter: '{herd_filter}'")
 
@@ -269,6 +270,11 @@ def process_image_for_identification(image_url, twilio_account_sid=None, twilio_
         horses_df_filtered = filter_by_herd(horses_df_all, herd_filter, horse_herds_map)
         if horses_df_filtered.empty:
             raise ValueError(f"No horses found in herd '{herd_filter}'. Please check the herd name.")
+
+        # Store the original indices before reassigning
+        filtered_indices = horses_df_filtered.index.tolist()
+        logger.info(f"Filtered indices: {len(filtered_indices)} horses selected for herd '{herd_filter}'")
+
         horses_df_all = horses_df_filtered
 
     dataset_database = ImageDataset(horses_df_all, horses_dataset_obj.root)
@@ -321,7 +327,14 @@ def process_image_for_identification(image_url, twilio_account_sid=None, twilio_
         features_output_path = os.path.join(features_dir, 'database_deep_features.pkl')
         logger.info(f"Loading database features from {features_output_path}...")
         with open(features_output_path, 'rb') as f:
-            database_features = pickle.load(f)
+            database_features_full = pickle.load(f)
+
+        # Filter features if herd filtering was applied
+        if filtered_indices is not None:
+            logger.info(f"Filtering features: selecting {len(filtered_indices)} vectors from {len(database_features_full)} total")
+            database_features = database_features_full[filtered_indices]
+        else:
+            database_features = database_features_full
 
         logger.info("Calculating similarity...")
         similarity_function = CosineSimilarity()
