@@ -4,14 +4,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a Horse Identity Matching System that identifies individual horses based on photos. The system processes emails containing horse photos, detects horses, merges photos of the same horse from different sources, and provides SMS/MMS identification via Twilio.
+This is a Horse Identity Matching System that identifies individual horses based on photos. The system ingests horse photos from local directories, detects horses, merges photos of the same horse from different sources, and provides SMS/MMS identification via Twilio.
 
 ## Key Commands
 
 ### Core Processing Pipeline
 ```bash
-# 1. Ingest emails and extract horse photos
-python ingest_from_email.py
+# 1. Ingest photos from local directories
+python ingest_from_dir.py
 
 # 2. Normalize horse names against master list (with CLI interaction)
 python normalize_horse_names.py
@@ -56,7 +56,7 @@ docker build --platform linux/amd64 -f Dockerfile.responder -t horse-id-responde
 ## System Architecture
 
 ### Data Flow Pipeline
-1. **Email Ingestion** (`ingest_from_email.py`) - Fetches emails, extracts horse names, saves images
+1. **Directory Ingestion** (`ingest_from_dir.py`) - Ingests photos from local directories (one subdirectory per horse)
 2. **Name Normalization** (`normalize_horse_names.py`) - Normalizes horse names against master list with CLI interaction for uncertain matches
 3. **Multi-Horse Detection** (`multi_horse_detector.py`) - Uses YOLO to classify images as NONE/SINGLE/MULTIPLE horses
 4. **Identity Merging** (`merge_horse_identities.py`) - Uses Wildlife-mega-L-384 similarity to merge photos of same horse based on normalized names
@@ -72,7 +72,7 @@ docker build --platform linux/amd64 -f Dockerfile.responder -t horse-id-responde
 - **Twilio** - SMS/MMS interface
 
 ### CSV Data Files
-- `manifest_file` - Initial photos from email ingestion
+- `manifest_file` - Initial photos from directory ingestion
 - `normalized_manifest_file` - After horse name normalization with CLI interaction
 - `detected_manifest_file` - After horse detection analysis
 - `merged_manifest_file` - Final merged identities based on normalized names
@@ -86,13 +86,12 @@ docker build --platform linux/amd64 -f Dockerfile.responder -t horse-id-responde
 ## Configuration
 
 - `config.yml` - Central configuration for all paths, thresholds, and settings
-- `credentials.json` + `token.json` - Gmail API authentication
 - Requires AWS CLI configured with appropriate permissions for S3 and Lambda
 - Environment variables needed for Lambda: `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `PROCESSOR_LAMBDA_NAME`
 
 ## Development Notes
 
-- The system uses a specific workflow order - email ingestion → name normalization → detection → merging, etc.
+- The system uses a specific workflow order - directory ingestion → name normalization → detection → merging, etc.
 - **Name normalization step** addresses "horse name drift" where email names vary slightly from master list (e.g., 'Goodwill' vs 'Good Will')
 - Normalization requires CLI interaction for uncertain matches but saves decisions for future consistency
 - Calibration files (`.pkl`) are required for similarity matching and are created by the Jupyter notebook

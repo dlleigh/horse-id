@@ -1,6 +1,6 @@
 # Horse Identity Matching System
 
-This system is designed to identify an individual horse based on its picture, using a database of labeled horse images that are collected from emails that contain these images as attachments. The system contains components which processes emails containing horse photos, detects horses in those photos, merges photos of the same horse from different emails into a single identity, tools to review images and correct merges, and to extract features.
+This system is designed to identify an individual horse based on its picture, using a database of labeled horse images that are ingested from local directories. The system contains components which process horse photos, detect horses in those photos, merge photos of the same horse from different sources into a single identity, tools to review images and correct merges, and to extract features.
 
 SMS/MMS (via Twilio SMS Gateway) is the interface used for individual horse identification.  The user sends a MMS message containing a photo of a horse, and they get an SMS response containing the horse's identity.
 
@@ -8,7 +8,7 @@ SMS/MMS (via Twilio SMS Gateway) is the interface used for individual horse iden
 
 The workflow is divided into several stages, each handled by a specific Python script:
 
-1.  **Email Ingestion (`ingest_from_email.py`)**: Fetches emails from a Gmail account, extracts horse names from subjects, saves image attachments, and creates an initial manifest of photos.
+1.  **Directory Ingestion (`ingest_from_dir.py`)**: Processes a directory containing subdirectories (one per horse), where each subdirectory name is used as the horse name. Copies or converts images (including HEIC) into the dataset directory and creates an initial manifest of photos.
 2.  **Horse Name Normalization (`normalize_horse_names.py`)**: Normalizes horse names from email subjects against a master horse list to address "horse name drift" where email names vary slightly from the official names (e.g., 'Goodwill' vs 'Good Will'). Includes interactive CLI for uncertain matches and saves approved mappings for consistency.
 3.  **Multi-Horse Detection (`multi_horse_detector.py`)**: Analyzes each downloaded image to detect the number of horses present (NONE, SINGLE, MULTIPLE) using a YOLOv5 model. It updates the manifest with this detection information.
 4.  **Identity Merging (`merge_horse_identities.py`)**: Automatically merges horses with unique names (non-recurring) across different emails while flagging horses with recurring names (e.g., "Cowboy 1", "Cowboy 2") for manual review. No complex similarity analysis is performed.
@@ -35,18 +35,17 @@ This project includes a comprehensive unit test suite and end-to-end tests.  See
 
 ## Core Scripts and Functionality
 
-### 1. Email Ingestion (`ingest_from_email.py`)
+### 1. Directory Ingestion (`ingest_from_dir.py`)
 
-*   **Authentication**: Securely connects to a specified Gmail account using OAuth 2.0. Credentials and tokens are managed via `credentials.json` and `token.json` (generated on first run).
-*   **Email Fetching**: Retrieves new emails that haven't been processed yet by comparing message IDs against the existing manifest.
-*   **Information Extraction**:
-    *   **Horse Name**: Extracts the horse's name from the email subject line using regular expressions (e.g., "HorseName - Season Year").
-    *   **Email Date**: Determines the oldest relevant date associated with the email content, considering forwarded message headers and the email's internal date. The date is included as part of the image metadata.
-*   **Attachment Handling**:
-    *   Identifies and downloads image attachments (JPG, JPEG, PNG, GIF).
-    *   Assigns a unique `canonical_id` to all photos from the *same email*. 
-    *   Saves images to a configured `dataset_dir` with a filename format: `{message_id}-{original_filename}`. If duplicate original filenames exist within the same email, a counter is appended (e.g., `{message_id}-{base}-{count}{ext}`).
-*   **Manifest Creation**: Creates or updates a CSV file (specified by `manifest_file` in `config.yml`) with one row per downloaded image.
+*   **Purpose**: Ingests horse photos from a local directory structure where each subdirectory represents one horse.
+*   **Directory Structure**: Expects a parent directory containing subdirectories, where each subdirectory name is used as the horse name.
+*   **Image Support**: Handles JPG, JPEG, PNG, GIF, and optionally HEIC/HEIF files (with automatic conversion to JPG via `pillow-heif`).
+*   **Date Extraction**: Extracts dates from image EXIF metadata, falling back to file modification time.
+*   **Deduplication**: Generates a deterministic `message_id` per subdirectory and skips files already present in the manifest.
+*   **Canonical ID Assignment**: Assigns a unique `canonical_id` to all photos from the same subdirectory. Reuses existing canonical IDs for previously seen subdirectories.
+*   **Manifest Creation**: Creates or updates a CSV file (specified by `manifest_file` in `config.yml`) with one row per ingested image.
+
+> **Note**: `ingest_from_email.py` (Gmail-based ingestion) is deprecated but remains in the codebase for reference.
 
 ### 2. Horse Name Normalization (`normalize_horse_names.py`)
 
@@ -227,16 +226,16 @@ sequenceDiagram
 The system uses several CSV files to store and pass data between stages:
 
 1.  **`manifest_file` (e.g., `data/manifest.csv`)**
-    *   **Created by**: `ingest_from_email.py`
-    *   **Purpose**: Initial list of all downloaded photos and their metadata from emails.
+    *   **Created by**: `ingest_from_dir.py`
+    *   **Purpose**: Initial list of all ingested photos and their metadata.
     *   **Key Columns**:
-        *   `horse_name`: Extracted from email subject.
-        *   `email_date`: Oldest date associated with the email.
-        *   `message_id`: Gmail message ID.
+        *   `horse_name`: Extracted from subdirectory name.
+        *   `email_date`: Date extracted from image EXIF metadata or file modification time.
+        *   `message_id`: Deterministic ID generated from the source subdirectory path.
         *   `original_filename`: Filename as it was in the email.
         *   `filename`: Filename on disk (e.g., `{message_id}-{original_filename}`).
         *   `date_added`: Date the photo was processed.
-        *   `canonical_id`: Initially, a unique ID assigned to all photos from the *same email*.
+        *   `canonical_id`: Initially, a unique ID assigned to all photos from the *same subdirectory*.
         *   `original_canonical_id`: Same as `canonical_id` at this stage.
         *   `size_ratio`: (Initialized as NA)
         *   `num_horses_detected`: (Initialized as empty)
@@ -294,9 +293,9 @@ graph TD
         images("image files")
     end
 
-    subgraph "Email Processing"
-        email_parser["ingest_from_email.py"] --> manifest_base
-        email_parser --> images
+    subgraph "Directory Ingestion"
+        dir_parser["ingest_from_dir.py"] --> manifest_base
+        dir_parser --> images
     end
 
     subgraph "Parse herds"
@@ -432,11 +431,7 @@ streamlit run manage_horses.py
     ```bash
     pip install -r requirements.txt
     ```
-3.  **Configure Gmail API**:
-    *   Follow Google's instructions to enable the Gmail API and download `credentials.json`.
-    *   Place `credentials.json` in the root directory or update its path in `config.yml`.
-    *   The first time `ingest_from_email.py` runs, it will open a browser window for authentication, creating `token.json`.
-4.  **Configure the system**:
+3.  **Configure the system**:
     
     The system uses a flexible configuration approach supporting environment variables and local overrides:
 
@@ -460,7 +455,6 @@ streamlit run manage_horses.py
     3. Base config file (`config.yml`)
     
     **Other Settings**:
-    *   Review `gmail` settings in `config.yml` or override in `config.local.yml`.
     *   Review `detection` settings (YOLO model, confidence, size ratio).
     *   Review `similarity` settings (threshold).
     *   Ensure `calibration_dir` points to where your WildFusion calibration files (`.pkl`) are (or will be) stored.
@@ -477,11 +471,8 @@ The preferred way to run the system is using the unified pipeline script that co
 
 **macOS/Linux:**
 ```bash
-# Interactive directory ingestion (default)
+# Directory ingestion (default)
 ./run_pipeline.sh
-
-# Email ingestion
-./run_pipeline.sh --email
 
 # Non-interactive directory ingestion
 ./run_pipeline.sh --dir --path /path/to/horses --date 20240315
@@ -495,11 +486,8 @@ The preferred way to run the system is using the unified pipeline script that co
 
 **Windows:**
 ```batch
-# Interactive directory ingestion (default)
+# Directory ingestion (default)
 run_pipeline.bat
-
-# Email ingestion
-run_pipeline.bat --email
 
 # Non-interactive directory ingestion
 run_pipeline.bat --dir --path C:\path\to\horses --date 20240315
@@ -538,9 +526,9 @@ Use this tool to manually review and merge recurring horse names flagged by the 
 
 For debugging or advanced use cases, you can still run individual scripts:
 
-1.  **Ingest Emails**:
+1.  **Ingest from Directory**:
     ```bash
-    python ingest_from_email.py
+    python ingest_from_dir.py
     ```
 2.  **Normalize Horse Names**:
     ```bash
