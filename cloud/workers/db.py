@@ -1,0 +1,115 @@
+"""Database client for ML workers. Uses psycopg2 + pgvector."""
+
+import os
+
+import psycopg2
+from pgvector.psycopg2 import register_vector
+
+
+_conn = None
+
+
+def get_connection():
+    global _conn
+    if _conn is not None and not _conn.closed:
+        return _conn
+    _conn = psycopg2.connect(os.environ["DATABASE_URL"])
+    _conn.autocommit = True
+    register_vector(_conn)
+    return _conn
+
+
+def update_photo_status(photo_id: int, status: str, detection_result: str = None):
+    conn = get_connection()
+    with conn.cursor() as cur:
+        if detection_result is not None:
+            cur.execute(
+                "UPDATE photos SET processing_status = %s, detection_result = %s WHERE id = %s",
+                (status, detection_result, photo_id),
+            )
+        else:
+            cur.execute(
+                "UPDATE photos SET processing_status = %s WHERE id = %s",
+                (status, photo_id),
+            )
+
+
+def insert_feature(photo_id: int, horse_id: int, embedding: list[float]):
+    conn = get_connection()
+    with conn.cursor() as cur:
+        cur.execute(
+            """INSERT INTO features (photo_id, horse_id, embedding)
+               VALUES (%s, %s, %s::vector)
+               ON CONFLICT (photo_id) DO UPDATE SET embedding = EXCLUDED.embedding, extracted_at = now()""",
+            (photo_id, horse_id, str(embedding)),
+        )
+
+
+def get_pending_photos(limit: int = 100) -> list[dict]:
+    conn = get_connection()
+    with conn.cursor() as cur:
+        cur.execute(
+            """SELECT p.id, p.horse_id, p.drive_file_id, p.filename, h.name as horse_name
+               FROM photos p
+               JOIN horses h ON h.id = p.horse_id
+               WHERE p.processing_status = 'pending' AND p.excluded = false
+               ORDER BY p.id
+               LIMIT %s""",
+            (limit,),
+        )
+        cols = [d[0] for d in cur.description]
+        return [dict(zip(cols, row)) for row in cur.fetchall()]
+
+
+def get_detected_photos(limit: int = 100) -> list[dict]:
+    """Get photos that have been detected as SINGLE and need feature extraction."""
+    conn = get_connection()
+    with conn.cursor() as cur:
+        cur.execute(
+            """SELECT p.id, p.horse_id, p.drive_file_id, p.filename, h.name as horse_name
+               FROM photos p
+               JOIN horses h ON h.id = p.horse_id
+               WHERE p.processing_status = 'detected'
+                 AND p.detection_result = 'SINGLE'
+                 AND p.excluded = false
+                 AND NOT EXISTS (SELECT 1 FROM features f WHERE f.photo_id = p.id)
+               ORDER BY p.id
+               LIMIT %s""",
+            (limit,),
+        )
+        cols = [d[0] for d in cur.description]
+        return [dict(zip(cols, row)) for row in cur.fetchall()]
+
+
+def query_similar(embedding: list[float], limit: int = 5, herd_id: int = None) -> list[dict]:
+    conn = get_connection()
+    with conn.cursor() as cur:
+        if herd_id is not None:
+            cur.execute(
+                """SELECT f.horse_id, h.name as horse_name, hd.name as herd_name,
+                          1 - (f.embedding <=> %s::vector) as similarity,
+                          p.id as photo_id, p.filename
+                   FROM features f
+                   JOIN horses h ON h.id = f.horse_id
+                   JOIN herds hd ON hd.id = h.herd_id
+                   JOIN photos p ON p.id = f.photo_id
+                   WHERE h.herd_id = %s
+                   ORDER BY f.embedding <=> %s::vector
+                   LIMIT %s""",
+                (str(embedding), herd_id, str(embedding), limit),
+            )
+        else:
+            cur.execute(
+                """SELECT f.horse_id, h.name as horse_name, hd.name as herd_name,
+                          1 - (f.embedding <=> %s::vector) as similarity,
+                          p.id as photo_id, p.filename
+                   FROM features f
+                   JOIN horses h ON h.id = f.horse_id
+                   JOIN herds hd ON hd.id = h.herd_id
+                   JOIN photos p ON p.id = f.photo_id
+                   ORDER BY f.embedding <=> %s::vector
+                   LIMIT %s""",
+                (str(embedding), str(embedding), limit),
+            )
+        cols = [d[0] for d in cur.description]
+        return [dict(zip(cols, row)) for row in cur.fetchall()]

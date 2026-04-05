@@ -13,7 +13,7 @@ import { relations } from "drizzle-orm";
 
 const vector = customType<{ data: number[]; driverParam: string }>({
   dataType() {
-    return "vector(384)";
+    return "vector(1536)";
   },
   toDriver(value: number[]): string {
     return `[${value.join(",")}]`;

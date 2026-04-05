@@ -33,7 +33,7 @@ CREATE TABLE features (
     id SERIAL PRIMARY KEY,
     photo_id INTEGER NOT NULL UNIQUE REFERENCES photos(id) ON DELETE CASCADE,
     horse_id INTEGER NOT NULL REFERENCES horses(id) ON DELETE CASCADE,
-    embedding vector(384) NOT NULL,
+    embedding vector(1536) NOT NULL,
     extracted_at TIMESTAMPTZ DEFAULT now()
 );
 
