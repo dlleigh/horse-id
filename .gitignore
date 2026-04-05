@@ -1,9 +1,13 @@
 **/node_modules
 .venv
+.env
+.vscode/*
 horse_dataset*
 .DS_Store
-*.json
 datasets
+credentials.*
+event.json
+token.json
 *.jpg
 sandbox
 *.pt
