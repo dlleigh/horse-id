@@ -1,3 +1,4 @@
+**/node_modules
 .venv
 horse_dataset*
 .DS_Store
