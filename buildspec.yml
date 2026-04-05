@@ -13,6 +13,7 @@ env:
     # Define specific names for the processor and responder images/tags
     PROCESSOR_IMAGE_TAG: "processor-latest"
     RESPONDER_IMAGE_TAG: "responder-latest"
+    ML_WORKER_IMAGE_TAG: "ml-worker-latest"
 
 phases:
   pre_build:
@@ -36,6 +37,11 @@ phases:
       - docker build --platform linux/amd64 --file Dockerfile.responder -t $ECR_REPOSITORY_NAME:$RESPONDER_IMAGE_TAG .
       - docker tag $ECR_REPOSITORY_NAME:$RESPONDER_IMAGE_TAG $REPOSITORY_URI:$RESPONDER_IMAGE_TAG
 
+      - echo "Building the ML worker Docker image..."
+      # Build the ML worker image (uses cloud/workers/Dockerfile with project-root build context)
+      - docker build --platform linux/amd64 --file cloud/workers/Dockerfile -t $ECR_REPOSITORY_NAME:$ML_WORKER_IMAGE_TAG .
+      - docker tag $ECR_REPOSITORY_NAME:$ML_WORKER_IMAGE_TAG $REPOSITORY_URI:$ML_WORKER_IMAGE_TAG
+
   post_build:
     commands:
       - echo "Build completed on $(date)"
@@ -43,6 +49,7 @@ phases:
       # Push both images to ECR
       - docker push $REPOSITORY_URI:$PROCESSOR_IMAGE_TAG
       - docker push $REPOSITORY_URI:$RESPONDER_IMAGE_TAG
+      - docker push $REPOSITORY_URI:$ML_WORKER_IMAGE_TAG
       # Removed imagedefinitions.json as it's typically for single-container deployments
       # and not directly applicable to two separate Lambda functions from distinct images.
 

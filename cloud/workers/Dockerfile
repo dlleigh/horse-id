@@ -6,7 +6,8 @@ WORKDIR /var/task
 RUN dnf install -y mesa-libGL libXext libSM libICE libXrender fontconfig git
 
 # Install Python dependencies (CPU-only PyTorch)
-COPY requirements.txt .
+# Build context is project root, so paths are relative to that
+COPY cloud/workers/requirements.txt .
 RUN pip install \
     --index-url https://download.pytorch.org/whl/cpu \
     --extra-index-url https://pypi.org/simple \
@@ -20,11 +21,10 @@ RUN mkdir -p /opt/ml/model && \
 
 RUN python -c "from ultralytics import YOLO; YOLO('yolo11x-seg.pt')"
 
-# Copy worker code
-COPY *.py ${LAMBDA_TASK_ROOT}/
-
-# Copy detection config
-COPY ../config.yml ${LAMBDA_TASK_ROOT}/ 2>/dev/null || true
+# Copy worker code + detection library + config
+COPY cloud/workers/*.py ${LAMBDA_TASK_ROOT}/
+COPY horse_detection_lib.py ${LAMBDA_TASK_ROOT}/
+COPY config.yml ${LAMBDA_TASK_ROOT}/
 
 ENV MODEL_CACHE_DIR="/opt/ml/model"
 ENV MATPLOTLIB_CONFIGDIR="/tmp/matplotlib_cache"
