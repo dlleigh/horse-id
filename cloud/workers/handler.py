@@ -3,6 +3,10 @@
 import json
 import os
 
+# Initialize config (SSM in Lambda, .env locally) before anything reads env vars
+import config
+config.init()
+
 
 def lambda_handler(event, context):
     task = event.get("task")

@@ -12,9 +12,8 @@ import argparse
 import os
 import sys
 
-# Load env from cloud/.env
-from dotenv import load_dotenv
-load_dotenv(os.path.join(os.path.dirname(__file__), "../.env"))
+import config
+config.init()
 
 from db import get_pending_photos, get_detected_photos
 

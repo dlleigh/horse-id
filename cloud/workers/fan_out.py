@@ -14,9 +14,9 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import boto3
-from dotenv import load_dotenv
 
-load_dotenv(os.path.join(os.path.dirname(__file__), "../.env"))
+import config
+config.init()
 
 from db import get_pending_photos, get_detected_photos, get_connection
 
