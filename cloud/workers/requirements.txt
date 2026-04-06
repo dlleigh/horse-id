@@ -12,3 +12,4 @@ torch
 torchvision
 timm
 ultralytics
+pi-heif

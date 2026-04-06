@@ -78,13 +78,14 @@ def get_status():
     print(f"\nFeatures extracted: {feature_count}")
 
 
-def fan_out(task: str, batch_size: int, max_concurrent: int):
+def fan_out(task: str, batch_size: int, max_concurrent: int, limit: int = None):
     """Fan out work to Lambda in parallel batches."""
+    fetch_limit = limit or 10000
     if task == "detect":
-        all_photos = get_pending_photos(limit=10000)
+        all_photos = get_pending_photos(limit=fetch_limit)
         label = "detection"
     elif task == "extract":
-        all_photos = get_detected_photos(limit=10000)
+        all_photos = get_detected_photos(limit=fetch_limit)
         label = "extraction"
     else:
         raise ValueError(f"Unknown task: {task}")
@@ -129,12 +130,13 @@ def main():
     parser.add_argument("command", choices=["detect", "extract", "status"])
     parser.add_argument("--batch-size", type=int, default=20, help="Photos per Lambda invocation")
     parser.add_argument("--max-concurrent", type=int, default=10, help="Max concurrent Lambda invocations")
+    parser.add_argument("--limit", type=int, default=None, help="Max total photos to process")
     args = parser.parse_args()
 
     if args.command == "status":
         get_status()
     else:
-        fan_out(args.command, args.batch_size, args.max_concurrent)
+        fan_out(args.command, args.batch_size, args.max_concurrent, args.limit)
 
 
 if __name__ == "__main__":

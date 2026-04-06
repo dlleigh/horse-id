@@ -28,5 +28,7 @@ COPY config.yml ${LAMBDA_TASK_ROOT}/
 
 ENV MODEL_CACHE_DIR="/opt/ml/model"
 ENV MATPLOTLIB_CONFIGDIR="/tmp/matplotlib_cache"
+ENV YOLO_AUTOINSTALL="false"
+ENV YOLO_CONFIG_DIR="/tmp/Ultralytics"
 
 CMD [ "handler.lambda_handler" ]
