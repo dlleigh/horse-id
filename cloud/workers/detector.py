@@ -3,6 +3,11 @@
 import os
 import numpy as np
 import yaml
+try:
+    import pi_heif
+    pi_heif.register_heif_opener()
+except ImportError:
+    pass
 from PIL import Image
 from ultralytics import YOLO
 
@@ -86,7 +91,7 @@ def classify_image(image_path: str) -> str:
         horse_masks = result.masks[horse_indices]
         classification, _, _, _ = classify_horse_detection(
             horse_boxes, horse_masks, horse_indices, areas,
-            img_width, img_height, _detection_config
+            img_width, img_height, None
         )
         return classification
     except ImportError:

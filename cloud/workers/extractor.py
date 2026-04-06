@@ -3,6 +3,11 @@
 import os
 import numpy as np
 import pandas as pd
+try:
+    import pi_heif
+    pi_heif.register_heif_opener()
+except ImportError:
+    pass
 import timm
 import torchvision.transforms as T
 from wildlife_tools.features import DeepFeatures
