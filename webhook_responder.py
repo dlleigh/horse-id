@@ -99,9 +99,14 @@ def webhook_handler(event, context):
     else:
         logger.info("No herd filter specified")
 
-    # Add herd_filter to the event payload for the processor
-    if 'twilio_herd_filter' not in event:
-        event['twilio_herd_filter'] = herd_filter
+    # Build payload for ML worker
+    ml_worker_payload = {
+        "task": "twilio_identify",
+        "media_url": post_vars['MediaUrl0'],
+        "from_number": post_vars.get('From'),
+        "to_number": post_vars.get('To'),
+        "herd_name": herd_filter,
+    }
 
     processor_lambda_name = os.environ.get('PROCESSOR_LAMBDA_NAME')
     if not processor_lambda_name:
@@ -114,13 +119,13 @@ def webhook_handler(event, context):
 
     try:
         lambda_client = boto3.client('lambda')
-        logger.info(f"Asynchronously invoking processor: {processor_lambda_name}")
+        logger.info(f"Asynchronously invoking ML worker: {processor_lambda_name}")
         lambda_client.invoke(
             FunctionName=processor_lambda_name,
             InvocationType='Event',
-            Payload=json.dumps(event)
+            Payload=json.dumps(ml_worker_payload)
         )
-        logger.info("Processor invocation successful.")
+        logger.info("ML worker invocation successful.")
     except Exception as e:
         logger.exception(f"Failed to invoke processor lambda: {e}")
         return {

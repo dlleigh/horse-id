@@ -81,6 +81,23 @@ def get_detected_photos(limit: int = 100) -> list[dict]:
         return [dict(zip(cols, row)) for row in cur.fetchall()]
 
 
+def get_herd_id_by_name(name: str) -> int | None:
+    """Case-insensitive herd lookup. Returns herd_id or None."""
+    conn = get_connection()
+    with conn.cursor() as cur:
+        cur.execute("SELECT id FROM herds WHERE lower(name) = lower(%s)", (name,))
+        row = cur.fetchone()
+        return row[0] if row else None
+
+
+def get_all_herd_names() -> list[str]:
+    """Return all herd names for error messages."""
+    conn = get_connection()
+    with conn.cursor() as cur:
+        cur.execute("SELECT name FROM herds ORDER BY name")
+        return [row[0] for row in cur.fetchall()]
+
+
 def query_similar(embedding: list[float], limit: int = 5, herd_id: int = None) -> list[dict]:
     conn = get_connection()
     with conn.cursor() as cur:

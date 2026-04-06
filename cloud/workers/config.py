@@ -12,6 +12,8 @@ SSM_PREFIX = "/horse-id/"
 SSM_PARAMS = {
     "database-url": "DATABASE_URL",
     "drive-service-account-key": "GOOGLE_DRIVE_SERVICE_ACCOUNT_KEY",
+    "twilio-account-sid": "TWILIO_ACCOUNT_SID",
+    "twilio-auth-token": "TWILIO_AUTH_TOKEN",
 }
 
 

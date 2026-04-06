@@ -13,3 +13,5 @@ torchvision
 timm
 ultralytics
 pi-heif
+twilio
+requests
