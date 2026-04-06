@@ -27,8 +27,17 @@ def lambda_handler(event, context):
 
     elif task == "identify":
         from identifier import identify
+
+        # Download image from S3 if s3_key provided
+        image_bytes = None
+        if event.get("s3_key"):
+            import boto3
+            s3 = boto3.client("s3")
+            resp = s3.get_object(Bucket=event["s3_bucket"], Key=event["s3_key"])
+            image_bytes = resp["Body"].read()
+
         result = identify(
-            image_bytes=event.get("image_bytes"),
+            image_bytes=image_bytes,
             drive_file_id=event.get("drive_file_id"),
             herd_id=event.get("herd_id"),
             top_k=event.get("top_k", 5),
