@@ -23,12 +23,14 @@ def main():
     parser.add_argument("image_path")
     parser.add_argument("--top-k", type=int, default=5)
     parser.add_argument("--herd-id", type=int, default=None)
+    parser.add_argument("--threshold", type=float, default=0.0)
     args = parser.parse_args()
 
     result = identify(
         image_path=args.image_path,
         herd_id=args.herd_id,
         top_k=args.top_k,
+        confidence_threshold=args.threshold,
     )
 
     json.dump(result["predictions"], sys.stdout)

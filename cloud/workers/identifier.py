@@ -14,7 +14,7 @@ def identify(
     drive_file_id: str = None,
     herd_id: int = None,
     top_k: int = 5,
-    confidence_threshold: float = 0.8,
+    confidence_threshold: float = 0.0,
 ) -> dict:
     """Identify a horse from a query image.
 
@@ -43,26 +43,20 @@ def identify(
         # Extract query embedding
         embedding = extract_single(path)
 
-        # Query pgvector for similar embeddings
+        # Query pgvector — returns top_k distinct horses (best photo per horse)
         results = query_similar(embedding.tolist(), limit=top_k, herd_id=herd_id)
 
-        # Aggregate by horse (multiple photos per horse)
-        horse_scores = {}
-        for r in results:
-            key = r["horse_id"]
-            if key not in horse_scores or r["similarity"] > horse_scores[key]["similarity"]:
-                horse_scores[key] = r
-
-        predictions = []
-        for r in sorted(horse_scores.values(), key=lambda x: x["similarity"], reverse=True):
-            if r["similarity"] >= confidence_threshold:
-                predictions.append({
-                    "horse_id": r["horse_id"],
-                    "horse_name": r["horse_name"],
-                    "herd_name": r["herd_name"],
-                    "similarity": float(r["similarity"]),
-                    "reference_photo_id": r["photo_id"],
-                })
+        predictions = [
+            {
+                "horse_id": r["horse_id"],
+                "horse_name": r["horse_name"],
+                "herd_name": r["herd_name"],
+                "similarity": float(r["similarity"]),
+                "reference_photo_id": r["photo_id"],
+            }
+            for r in results
+            if r["similarity"] >= confidence_threshold
+        ]
 
         return {
             "predictions": predictions,
