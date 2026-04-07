@@ -87,7 +87,7 @@ def lambda_handler(event, context):
                 image_bytes=image_bytes,
                 herd_id=herd_id,
                 top_k=5,
-                confidence_threshold=0.8,
+                confidence_threshold=float(os.environ.get("IDENTIFY_CONFIDENCE_THRESHOLD", "0.0")),
             )
 
             # Format SMS response
@@ -98,8 +98,7 @@ def lambda_handler(event, context):
             msg += "Horse Identification Results:\n"
             if predictions:
                 for p in predictions:
-                    display = f"{p['horse_name']} ({p['herd_name']})"
-                    msg += f"  {display} (Confidence: {p['similarity']:.1%})\n"
+                    msg += f"  {p['horse_name']} - {p['herd_name']} (Confidence: {p['similarity']:.1%})\n"
             else:
                 msg += "  No strong match found.\n"
 
