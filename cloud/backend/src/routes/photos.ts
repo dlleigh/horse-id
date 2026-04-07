@@ -31,8 +31,10 @@ router.patch("/:id", async (req, res) => {
 });
 
 // GET /api/photos/:id/image — proxy image from Drive
+// ?size=thumb returns a Drive-generated thumbnail (much faster)
 router.get("/:id/image", async (req, res) => {
   const photoId = Number(req.params.id);
+  const wantThumb = req.query.size === "thumb";
 
   const [photo] = await db
     .select({ driveFileId: photos.driveFileId, filename: photos.filename })
@@ -46,6 +48,26 @@ router.get("/:id/image", async (req, res) => {
 
   try {
     const drive = getDriveClient();
+
+    if (wantThumb) {
+      // Fetch thumbnailLink from Drive metadata and redirect
+      const meta = await drive.files.get({
+        fileId: photo.driveFileId,
+        fields: "thumbnailLink",
+        supportsAllDrives: true,
+      });
+
+      const thumbLink = meta.data.thumbnailLink;
+      if (thumbLink) {
+        // Replace default size with 400px — plenty for grid cards
+        const sized = thumbLink.replace(/=s\d+$/, "=s400");
+        res.setHeader("Cache-Control", "public, max-age=86400");
+        res.redirect(302, sized);
+        return;
+      }
+      // Fall through to full image if no thumbnail available
+    }
+
     const response = await drive.files.get(
       { fileId: photo.driveFileId, alt: "media", supportsAllDrives: true },
       { responseType: "stream" }

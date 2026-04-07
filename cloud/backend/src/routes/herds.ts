@@ -9,8 +9,8 @@ const router = Router();
 router.get("/", async (_req, res) => {
   const results = await db.execute(sql`
     SELECT h.id, h.name,
-      (SELECT count(*) FROM horses WHERE horses.herd_id = h.id) as "horseCount",
-      (SELECT count(*) FROM photos p JOIN horses ho ON ho.id = p.horse_id WHERE ho.herd_id = h.id) as "photoCount"
+      (SELECT count(*)::int FROM horses WHERE horses.herd_id = h.id) as "horseCount",
+      (SELECT count(*)::int FROM photos p JOIN horses ho ON ho.id = p.horse_id WHERE ho.herd_id = h.id) as "photoCount"
     FROM herds h
     ORDER BY h.name
   `);
@@ -24,8 +24,10 @@ router.get("/:id/horses", async (req, res) => {
 
   const results = await db.execute(sql`
     SELECT h.id, h.name, h.status,
-      (SELECT count(*) FROM photos WHERE photos.horse_id = h.id) as "photoCount",
-      (SELECT count(*) FROM photos WHERE photos.horse_id = h.id AND processing_status = 'ready') as "readyCount"
+      (SELECT count(*)::int FROM photos WHERE photos.horse_id = h.id) as "photoCount",
+      (SELECT count(*)::int FROM photos WHERE photos.horse_id = h.id AND processing_status = 'ready') as "readyCount",
+      (SELECT p.id FROM photos p WHERE p.horse_id = h.id AND p.excluded = false
+       ORDER BY p.processing_status = 'ready' DESC, p.id LIMIT 1) as "thumbnailPhotoId"
     FROM horses h
     WHERE h.herd_id = ${herdId}
     ORDER BY h.name

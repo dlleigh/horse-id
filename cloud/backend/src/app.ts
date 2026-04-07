@@ -1,5 +1,6 @@
 import "./env.js";
 import express from "express";
+import cors from "cors";
 import herdsRouter from "./routes/herds.js";
 import horsesRouter from "./routes/horses.js";
 import photosRouter from "./routes/photos.js";
@@ -7,6 +8,7 @@ import syncRouter from "./routes/sync.js";
 import identifyRouter from "./routes/identify.js";
 
 const app = express();
+app.use(cors());
 app.use(express.json());
 
 app.get("/health", (_req, res) => {

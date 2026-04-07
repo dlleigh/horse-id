@@ -1,0 +1,103 @@
+const BASE = '/api';
+
+export interface Herd {
+  id: number;
+  name: string;
+  horseCount: number;
+  photoCount: number;
+}
+
+export interface HorseInHerd {
+  id: number;
+  name: string;
+  status: string;
+  photoCount: number;
+  readyCount: number;
+  thumbnailPhotoId: number | null;
+}
+
+export interface Photo {
+  id: number;
+  filename: string;
+  processingStatus: string;
+  detectionResult: string | null;
+  excluded: boolean;
+}
+
+export interface HorseDetail {
+  id: number;
+  name: string;
+  status: string;
+  herdId: number;
+  herdName: string;
+  photos: Photo[];
+}
+
+export interface SyncRun {
+  id: number;
+  startedAt: string;
+  completedAt: string | null;
+  status: string;
+  filesScanned: number;
+  filesAdded: number;
+  filesRemoved: number;
+  filesMoved: number;
+}
+
+export interface Prediction {
+  horse_id: number;
+  horse_name: string;
+  herd_name: string;
+  similarity: number;
+  reference_photo_id: number;
+}
+
+async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(url, init);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function getHerds(): Promise<Herd[]> {
+  return fetchJson(`${BASE}/herds`);
+}
+
+export async function getHerdHorses(herdId: number): Promise<HorseInHerd[]> {
+  return fetchJson(`${BASE}/herds/${herdId}/horses`);
+}
+
+export async function getHorse(horseId: number): Promise<HorseDetail> {
+  return fetchJson(`${BASE}/horses/${horseId}`);
+}
+
+export async function patchPhoto(photoId: number, excluded: boolean): Promise<{ id: number; excluded: boolean }> {
+  return fetchJson(`${BASE}/photos/${photoId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ excluded }),
+  });
+}
+
+export function photoImageUrl(photoId: number, size?: 'thumb'): string {
+  const url = `${BASE}/photos/${photoId}/image`;
+  return size ? `${url}?size=${size}` : url;
+}
+
+export async function triggerSync(): Promise<{ syncRunId: number }> {
+  return fetchJson(`${BASE}/sync`, { method: 'POST' });
+}
+
+export async function getSyncStatus(syncId: number): Promise<SyncRun> {
+  return fetchJson(`${BASE}/sync/${syncId}`);
+}
+
+export async function identify(image: File, herdId?: number, topK?: number): Promise<{ predictions: Prediction[] }> {
+  const form = new FormData();
+  form.append('image', image);
+  if (herdId) form.append('herd_id', String(herdId));
+  if (topK) form.append('top_k', String(topK));
+  return fetchJson(`${BASE}/identify`, { method: 'POST', body: form });
+}
