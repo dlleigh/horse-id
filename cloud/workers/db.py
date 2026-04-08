@@ -99,34 +99,36 @@ def get_all_herd_names() -> list[str]:
 
 
 def query_similar(embedding: list[float], limit: int = 5, herd_id: int = None) -> list[dict]:
+    """Return the top `limit` distinct horses ranked by best-photo similarity.
+
+    Uses DISTINCT ON to get the single best photo per horse, then sorts
+    and limits to `limit` horses.
+    """
     conn = get_connection()
+    herd_filter = "AND h.herd_id = %s" if herd_id is not None else ""
+    params = [str(embedding), str(embedding)]
+    if herd_id is not None:
+        params.insert(1, herd_id)
+    params.append(limit)
+
+    sql = f"""
+        SELECT * FROM (
+            SELECT DISTINCT ON (f.horse_id)
+                   f.horse_id, h.name as horse_name, hd.name as herd_name,
+                   1 - (f.embedding <=> %s::vector) as similarity,
+                   p.id as photo_id, p.filename
+            FROM features f
+            JOIN horses h ON h.id = f.horse_id
+            JOIN herds hd ON hd.id = h.herd_id
+            JOIN photos p ON p.id = f.photo_id
+            WHERE TRUE {herd_filter}
+            ORDER BY f.horse_id, f.embedding <=> %s::vector
+        ) sub
+        ORDER BY similarity DESC
+        LIMIT %s
+    """
+
     with conn.cursor() as cur:
-        if herd_id is not None:
-            cur.execute(
-                """SELECT f.horse_id, h.name as horse_name, hd.name as herd_name,
-                          1 - (f.embedding <=> %s::vector) as similarity,
-                          p.id as photo_id, p.filename
-                   FROM features f
-                   JOIN horses h ON h.id = f.horse_id
-                   JOIN herds hd ON hd.id = h.herd_id
-                   JOIN photos p ON p.id = f.photo_id
-                   WHERE h.herd_id = %s
-                   ORDER BY f.embedding <=> %s::vector
-                   LIMIT %s""",
-                (str(embedding), herd_id, str(embedding), limit),
-            )
-        else:
-            cur.execute(
-                """SELECT f.horse_id, h.name as horse_name, hd.name as herd_name,
-                          1 - (f.embedding <=> %s::vector) as similarity,
-                          p.id as photo_id, p.filename
-                   FROM features f
-                   JOIN horses h ON h.id = f.horse_id
-                   JOIN herds hd ON hd.id = h.herd_id
-                   JOIN photos p ON p.id = f.photo_id
-                   ORDER BY f.embedding <=> %s::vector
-                   LIMIT %s""",
-                (str(embedding), str(embedding), limit),
-            )
+        cur.execute(sql, params)
         cols = [d[0] for d in cur.description]
         return [dict(zip(cols, row)) for row in cur.fetchall()]
