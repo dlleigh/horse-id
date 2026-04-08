@@ -114,7 +114,7 @@ def detect_batch(photos: list[dict]) -> dict:
     Returns:
         dict with counts of each classification
     """
-    counts = {"NONE": 0, "SINGLE": 0, "MULTIPLE": 0, "SKIPPED": 0, "ERROR": 0}
+    counts = {"NONE": 0, "SINGLE": 0, "MULTIPLE": 0, "ERROR": 0}
     single_photos = []
 
     for photo in photos:
@@ -132,10 +132,9 @@ def detect_batch(photos: list[dict]) -> dict:
                 single_photos.append(photo)
 
         except UnreadableImageError as e:
-            # Image not readable — likely not fully synced yet. Reset to pending for retry.
-            print(f"  SKIPPED {photo['filename']}: {e}")
-            update_photo_status(photo["id"], "pending")
-            counts["SKIPPED"] += 1
+            print(f"  ERROR (unreadable) {photo['filename']}: {e}")
+            update_photo_status(photo["id"], "error")
+            counts["ERROR"] += 1
 
         except Exception as e:
             print(f"  ERROR {photo['filename']}: {e}")
