@@ -121,6 +121,19 @@ export async function getSyncStatus(syncId: number): Promise<SyncRun> {
   return fetchJson(`${BASE}/sync/${syncId}`);
 }
 
+export interface ErrorPhoto {
+  id: number;
+  filename: string;
+  processing_status: string;
+  detection_result: string | null;
+  horse_name: string;
+  herd_name: string;
+}
+
+export async function getErrorPhotos(): Promise<ErrorPhoto[]> {
+  return fetchJson(`${BASE}/photos/errors`);
+}
+
 export async function identify(image: File, herdId?: number, topK?: number): Promise<{ predictions: Prediction[] }> {
   const form = new FormData();
   form.append('image', image);

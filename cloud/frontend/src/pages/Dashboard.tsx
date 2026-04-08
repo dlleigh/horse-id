@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { getHerds, getStats, triggerSync, triggerProcessing, type Herd, type Stats } from '../api/client'
+import { getHerds, getStats, triggerSync, triggerProcessing, getErrorPhotos, type Herd, type Stats, type ErrorPhoto } from '../api/client'
 
 export default function Dashboard() {
   const [herds, setHerds] = useState<Herd[]>([])
   const [stats, setStats] = useState<Stats | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [errorPhotos, setErrorPhotos] = useState<ErrorPhoto[]>([])
+  const [showErrors, setShowErrors] = useState(false)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   // Fetch initial data
@@ -133,9 +135,18 @@ export default function Dashboard() {
               <span className="font-medium">{stats.ready}</span> ready
             </span>
             {stats.error > 0 && (
-              <span className="text-red-600">
+              <button
+                onClick={async () => {
+                  if (!showErrors) {
+                    const photos = await getErrorPhotos()
+                    setErrorPhotos(photos)
+                  }
+                  setShowErrors(!showErrors)
+                }}
+                className="text-red-600 hover:text-red-800 underline decoration-dotted"
+              >
                 <span className="font-medium">{stats.error}</span> errors
-              </span>
+              </button>
             )}
           </div>
           {stats.lastSync && (
@@ -146,6 +157,35 @@ export default function Dashboard() {
               {stats.lastSync.filesMoved > 0 && `, ${stats.lastSync.filesMoved.toLocaleString()} moved`}
             </p>
           )}
+        </div>
+      )}
+
+      {showErrors && errorPhotos.length > 0 && (
+        <div className="mb-6 p-3 bg-red-50 border border-red-200 rounded-lg">
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-sm font-medium text-red-800">Error Photos</h3>
+            <button onClick={() => setShowErrors(false)} className="text-red-400 hover:text-red-600 text-xs">
+              Hide
+            </button>
+          </div>
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left text-red-700 text-xs">
+                <th className="pb-1 pr-4">Filename</th>
+                <th className="pb-1 pr-4">Horse</th>
+                <th className="pb-1">Herd</th>
+              </tr>
+            </thead>
+            <tbody>
+              {errorPhotos.map(p => (
+                <tr key={p.id} className="text-red-900">
+                  <td className="py-0.5 pr-4 font-mono text-xs">{p.filename}</td>
+                  <td className="py-0.5 pr-4">{p.horse_name}</td>
+                  <td className="py-0.5">{p.herd_name}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
 

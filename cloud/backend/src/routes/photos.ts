@@ -1,10 +1,24 @@
 import { Router } from "express";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { db } from "../db/client.js";
 import { photos } from "../db/schema.js";
 import { getDriveClient } from "../services/drive.js";
 
 const router = Router();
+
+// GET /api/photos/errors — list photos with error status
+router.get("/errors", async (_req, res) => {
+  const rows = await db.execute(sql`
+    SELECT p.id, p.filename, p.processing_status, p.detection_result,
+           h.name AS horse_name, hd.name AS herd_name
+    FROM photos p
+    JOIN horses h ON h.id = p.horse_id
+    JOIN herds hd ON hd.id = h.herd_id
+    WHERE p.processing_status = 'error'
+    ORDER BY hd.name, h.name, p.filename
+  `);
+  res.json(rows.rows);
+});
 
 // PATCH /api/photos/:id — toggle exclude/include
 router.patch("/:id", async (req, res) => {
