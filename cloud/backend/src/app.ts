@@ -7,6 +7,7 @@ import photosRouter from "./routes/photos.js";
 import syncRouter from "./routes/sync.js";
 import identifyRouter from "./routes/identify.js";
 import statsRouter from "./routes/stats.js";
+import processRouter from "./routes/process.js";
 
 const app = express();
 app.use(cors());
@@ -22,6 +23,7 @@ app.use("/api/photos", photosRouter);
 app.use("/api/sync", syncRouter);
 app.use("/api/identify", identifyRouter);
 app.use("/api/stats", statsRouter);
+app.use("/api/process", processRouter);
 
 const port = process.env.PORT ?? 3000;
 app.listen(port, () => {

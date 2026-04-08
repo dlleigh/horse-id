@@ -10,7 +10,7 @@
     "sync": "tsx src/scripts/run-sync.ts"
   },
   "dependencies": {
-    "@aws-sdk/client-lambda": "^3.1024.0",
+    "@aws-sdk/client-lambda": "^3.1026.0",
     "@aws-sdk/client-s3": "^3.1024.0",
     "@neondatabase/serverless": "^0.10.0",
     "@types/cors": "^2.8.19",

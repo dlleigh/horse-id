@@ -11,7 +11,9 @@ router.get("/", async (_req, res) => {
       SELECT
         count(*)::int AS total,
         count(*) FILTER (WHERE processing_status = 'pending')::int AS pending,
-        count(*) FILTER (WHERE processing_status IN ('detecting', 'detected', 'extracting'))::int AS processing,
+        count(*) FILTER (WHERE processing_status = 'detecting')::int AS detecting,
+        count(*) FILTER (WHERE processing_status = 'detected')::int AS detected,
+        count(*) FILTER (WHERE processing_status = 'extracting')::int AS extracting,
         count(*) FILTER (WHERE processing_status = 'ready')::int AS ready,
         count(*) FILTER (WHERE processing_status = 'error')::int AS error
       FROM photos

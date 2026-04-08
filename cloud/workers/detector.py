@@ -13,6 +13,7 @@ from ultralytics import YOLO
 
 from drive_client import download_image
 from db import update_photo_status
+from lambda_utils import invoke_extraction
 
 
 class UnreadableImageError(Exception):
@@ -114,6 +115,7 @@ def detect_batch(photos: list[dict]) -> dict:
         dict with counts of each classification
     """
     counts = {"NONE": 0, "SINGLE": 0, "MULTIPLE": 0, "SKIPPED": 0, "ERROR": 0}
+    single_photos = []
 
     for photo in photos:
         image_path = None
@@ -125,6 +127,9 @@ def detect_batch(photos: list[dict]) -> dict:
             update_photo_status(photo["id"], "detected", classification)
             counts[classification] += 1
             print(f"  {photo['filename']}: {classification}")
+
+            if classification == "SINGLE":
+                single_photos.append(photo)
 
         except UnreadableImageError as e:
             # Image not readable — likely not fully synced yet. Reset to pending for retry.
@@ -140,5 +145,10 @@ def detect_batch(photos: list[dict]) -> dict:
         finally:
             if image_path and os.path.exists(image_path):
                 os.remove(image_path)
+
+    # Chain to extraction for SINGLE-detected photos
+    if single_photos:
+        invoke_extraction(single_photos)
+        print(f"  Dispatched {len(single_photos)} photos for extraction")
 
     return counts

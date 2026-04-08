@@ -47,7 +47,9 @@ export interface SyncRun {
 export interface Stats {
   total: number;
   pending: number;
-  processing: number;
+  detecting: number;
+  detected: number;
+  extracting: number;
   ready: number;
   error: number;
   syncStatus: 'running' | null;
@@ -109,6 +111,10 @@ export async function getStats(): Promise<Stats> {
 
 export async function triggerSync(): Promise<{ syncRunId: number }> {
   return fetchJson(`${BASE}/sync`, { method: 'POST' });
+}
+
+export async function triggerProcessing(): Promise<{ status: string }> {
+  return fetchJson(`${BASE}/process`, { method: 'POST' });
 }
 
 export async function getSyncStatus(syncId: number): Promise<SyncRun> {

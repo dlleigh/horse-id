@@ -2,7 +2,7 @@ import { Router } from "express";
 import { eq } from "drizzle-orm";
 import { db } from "../db/client.js";
 import { syncRuns } from "../db/schema.js";
-import { runSync } from "../services/sync.js";
+import { runIncrementalSync } from "../services/sync.js";
 
 const router = Router();
 
@@ -15,7 +15,7 @@ router.post("/", async (_req, res) => {
       .returning({ id: syncRuns.id });
 
     // Fire and forget — frontend polls GET /api/sync/:id
-    runSync(syncRun.id).catch(err => {
+    runIncrementalSync(syncRun.id).catch(err => {
       console.error("Sync failed:", err);
     });
 

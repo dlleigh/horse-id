@@ -25,6 +25,15 @@ def lambda_handler(event, context):
         result = extract_batch(photos)
         return {"status": "ok", "task": "extract", "counts": result}
 
+    elif task == "sync_batch":
+        from syncer import sync_batch
+        changes = event.get("changes", [])
+        folder_changes = event.get("folder_changes", [])
+        sync_run_id = event.get("sync_run_id")
+        print(f"Syncing batch: {len(changes)} files, {len(folder_changes)} folders")
+        result = sync_batch(changes, folder_changes, sync_run_id)
+        return {"status": "ok", "task": "sync_batch", "counts": result}
+
     elif task == "identify":
         from identifier import identify
 

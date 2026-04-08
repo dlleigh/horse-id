@@ -24,12 +24,12 @@ def update_photo_status(photo_id: int, status: str, detection_result: str = None
     with conn.cursor() as cur:
         if detection_result is not None:
             cur.execute(
-                "UPDATE photos SET processing_status = %s, detection_result = %s WHERE id = %s",
+                "UPDATE photos SET processing_status = %s, detection_result = %s, updated_at = now() WHERE id = %s",
                 (status, detection_result, photo_id),
             )
         else:
             cur.execute(
-                "UPDATE photos SET processing_status = %s WHERE id = %s",
+                "UPDATE photos SET processing_status = %s, updated_at = now() WHERE id = %s",
                 (status, photo_id),
             )
 

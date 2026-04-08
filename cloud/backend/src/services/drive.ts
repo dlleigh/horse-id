@@ -54,6 +54,63 @@ export async function listFolders(parentId: string): Promise<DriveFolder[]> {
   return folders;
 }
 
+export interface DriveChange {
+  fileId: string;
+  name: string | null;
+  parentId: string | null;
+  md5Checksum: string | null;
+  mimeType: string | null;
+  removed: boolean;
+}
+
+export interface ChangesResult {
+  changes: DriveChange[];
+  newToken: string;
+}
+
+export async function getStartPageToken(): Promise<string> {
+  const drive = getDriveClient();
+  const res = await drive.changes.getStartPageToken({
+    supportsAllDrives: true,
+  });
+  return res.data.startPageToken!;
+}
+
+export async function getChanges(pageToken: string): Promise<ChangesResult> {
+  const drive = getDriveClient();
+  const changes: DriveChange[] = [];
+  let currentToken = pageToken;
+
+  do {
+    const res = await drive.changes.list({
+      pageToken: currentToken,
+      fields: "nextPageToken, newStartPageToken, changes(fileId, removed, file(id, name, parents, md5Checksum, mimeType, trashed))",
+      supportsAllDrives: true,
+      includeItemsFromAllDrives: true,
+      pageSize: 1000,
+    });
+
+    for (const change of res.data.changes ?? []) {
+      const file = change.file;
+      changes.push({
+        fileId: change.fileId!,
+        name: file?.name ?? null,
+        parentId: file?.parents?.[0] ?? null,
+        md5Checksum: file?.md5Checksum ?? null,
+        mimeType: file?.mimeType ?? null,
+        removed: change.removed === true || file?.trashed === true,
+      });
+    }
+
+    if (res.data.newStartPageToken) {
+      return { changes, newToken: res.data.newStartPageToken };
+    }
+    currentToken = res.data.nextPageToken!;
+  } while (currentToken);
+
+  return { changes, newToken: currentToken };
+}
+
 export async function listImageFiles(folderId: string): Promise<DriveFile[]> {
   const drive = getDriveClient();
   const files: DriveFile[] = [];

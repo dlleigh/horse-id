@@ -1,10 +1,163 @@
-import { eq, notInArray, inArray } from "drizzle-orm";
+import { eq, notInArray, inArray, sql } from "drizzle-orm";
+import { LambdaClient, InvokeCommand } from "@aws-sdk/client-lambda";
 import { db } from "../db/client.js";
 import { herds, horses, photos, syncRuns } from "../db/schema.js";
 import { getConfig } from "./config.js";
-import { listFolders, listImageFiles } from "./drive.js";
+import {
+  getStartPageToken,
+  getChanges,
+  listFolders,
+  listImageFiles,
+  type DriveChange,
+} from "./drive.js";
 
-export async function runSync(syncRunId: number): Promise<void> {
+const region = process.env.AWS_REGION || "us-east-2";
+const lambda = new LambdaClient({ region });
+const FUNCTION_NAME = process.env.ML_WORKER_LAMBDA || "horse-id-ml-worker";
+
+const SYNC_BATCH_SIZE = 50;
+
+// ── Changes API sync (incremental) ──────────────────────────────────
+
+/**
+ * Incremental sync using Drive Changes API.
+ * Fetches only what changed since last sync, dispatches to Lambda in batches.
+ */
+export async function runIncrementalSync(syncRunId: number): Promise<void> {
+  try {
+    // Get stored token
+    const { rows } = await db.execute(
+      sql`SELECT changes_token FROM drive_sync_state WHERE id = 1`
+    );
+    const storedToken = (rows[0] as { changes_token: string } | undefined)
+      ?.changes_token;
+
+    if (!storedToken) {
+      console.log("[sync] No changes token found, running full scan...");
+      await runFullSync(syncRunId);
+      return;
+    }
+
+    console.log("[sync] Fetching changes since last sync...");
+    const { changes, newToken } = await getChanges(storedToken);
+
+    if (changes.length === 0) {
+      console.log("[sync] No changes detected.");
+      await db
+        .update(syncRuns)
+        .set({ status: "completed", completedAt: new Date() })
+        .where(eq(syncRuns.id, syncRunId));
+      await db.execute(
+        sql`INSERT INTO drive_sync_state (id, changes_token, updated_at)
+            VALUES (1, ${newToken}, now())
+            ON CONFLICT (id) DO UPDATE SET changes_token = ${newToken}, updated_at = now()`
+      );
+      return;
+    }
+
+    console.log(`[sync] Found ${changes.length} changes`);
+
+    // Separate folder changes from file changes
+    const folderChanges: DriveChange[] = [];
+    const fileChanges: DriveChange[] = [];
+    for (const change of changes) {
+      if (change.mimeType === "application/vnd.google-apps.folder") {
+        folderChanges.push(change);
+      } else if (change.mimeType?.startsWith("image/")) {
+        fileChanges.push(change);
+      }
+      // Removals without mimeType — could be either
+      if (change.removed && !change.mimeType) {
+        folderChanges.push(change);
+        fileChanges.push(change);
+      }
+    }
+
+    await db
+      .update(syncRuns)
+      .set({ herdsTotal: fileChanges.length, lastHeartbeat: new Date() })
+      .where(eq(syncRuns.id, syncRunId));
+
+    // Dispatch to Lambda in batches
+    const batches: { changes: object[]; folder_changes: object[] }[] = [];
+    for (let i = 0; i < fileChanges.length; i += SYNC_BATCH_SIZE) {
+      batches.push({
+        changes: fileChanges.slice(i, i + SYNC_BATCH_SIZE).map(toPayload),
+        folder_changes: i === 0 ? folderChanges.map(toPayload) : [],
+      });
+    }
+
+    if (batches.length === 0 && folderChanges.length > 0) {
+      batches.push({
+        changes: [],
+        folder_changes: folderChanges.map(toPayload),
+      });
+    }
+
+    let dispatched = 0;
+    for (const batch of batches) {
+      await lambda.send(
+        new InvokeCommand({
+          FunctionName: FUNCTION_NAME,
+          InvocationType: "Event",
+          Payload: Buffer.from(
+            JSON.stringify({
+              task: "sync_batch",
+              sync_run_id: syncRunId,
+              ...batch,
+            })
+          ),
+        })
+      );
+      dispatched++;
+    }
+
+    console.log(
+      `[sync] Dispatched ${dispatched} sync batches (${fileChanges.length} files, ${folderChanges.length} folders)`
+    );
+
+    await db.execute(
+      sql`INSERT INTO drive_sync_state (id, changes_token, updated_at)
+          VALUES (1, ${newToken}, now())
+          ON CONFLICT (id) DO UPDATE SET changes_token = ${newToken}, updated_at = now()`
+    );
+
+    await db
+      .update(syncRuns)
+      .set({
+        status: "completed",
+        completedAt: new Date(),
+        filesScanned: fileChanges.length,
+      })
+      .where(eq(syncRuns.id, syncRunId));
+  } catch (err) {
+    await db
+      .update(syncRuns)
+      .set({ status: "failed", completedAt: new Date() })
+      .where(eq(syncRuns.id, syncRunId));
+    throw err;
+  }
+}
+
+function toPayload(change: DriveChange): object {
+  return {
+    file_id: change.fileId,
+    folder_id: change.fileId,
+    name: change.name,
+    parent_id: change.parentId,
+    md5: change.md5Checksum,
+    mime_type: change.mimeType,
+    removed: change.removed,
+  };
+}
+
+// ── Full scan sync (first time or fallback) ─────────────────────────
+
+/**
+ * Full scan — lists all folders and files from Drive.
+ * Used when no Changes API token exists (first sync).
+ */
+export async function runFullSync(syncRunId: number): Promise<void> {
   const config = getConfig();
   const rootFolderId = config.googleDriveDirectoryId;
 
@@ -14,7 +167,8 @@ export async function runSync(syncRunId: number): Promise<void> {
   let filesMoved = 0;
 
   try {
-    // 1. List herd folders from Drive
+    const startToken = await getStartPageToken();
+
     console.log("Listing herd folders...");
     const herdFolders = await listFolders(rootFolderId);
     console.log(`  Found ${herdFolders.length} herds`);
@@ -23,15 +177,19 @@ export async function runSync(syncRunId: number): Promise<void> {
     const activeDriveHorseIds: string[] = [];
     const activeDriveFileIds: string[] = [];
 
-    // First pass: list all herd and horse folders to get total count
-    const herdData: { folder: typeof herdFolders[0]; horseFolders: typeof herdFolders }[] = [];
+    const herdData: {
+      folder: (typeof herdFolders)[0];
+      horseFolders: typeof herdFolders;
+    }[] = [];
     let totalHorses = 0;
     for (const herdFolder of herdFolders) {
       const horseFolders = await listFolders(herdFolder.id);
       herdData.push({ folder: herdFolder, horseFolders });
       totalHorses += horseFolders.length;
     }
-    console.log(`  Found ${totalHorses} horses across ${herdFolders.length} herds`);
+    console.log(
+      `  Found ${totalHorses} horses across ${herdFolders.length} herds`
+    );
 
     let horsesScanned = 0;
     await db
@@ -42,7 +200,6 @@ export async function runSync(syncRunId: number): Promise<void> {
     for (const { folder: herdFolder, horseFolders } of herdData) {
       activeDriveHerdIds.push(herdFolder.id);
 
-      // Upsert herd
       const [existingHerd] = await db
         .select()
         .from(herds)
@@ -55,7 +212,6 @@ export async function runSync(syncRunId: number): Promise<void> {
             .update(herds)
             .set({ name: herdFolder.name })
             .where(eq(herds.id, existingHerd.id));
-          console.log(`  Renamed herd: ${existingHerd.name} -> ${herdFolder.name}`);
         }
         herdId = existingHerd.id;
       } else {
@@ -64,14 +220,12 @@ export async function runSync(syncRunId: number): Promise<void> {
           .values({ name: herdFolder.name, driveFolderId: herdFolder.id })
           .returning({ id: herds.id });
         herdId = newHerd.id;
-        console.log(`  New herd: ${herdFolder.name}`);
       }
 
       for (const horseFolder of horseFolders) {
         const horseStart = Date.now();
         activeDriveHorseIds.push(horseFolder.id);
 
-        // Upsert horse
         const [existingHorse] = await db
           .select()
           .from(horses)
@@ -80,15 +234,17 @@ export async function runSync(syncRunId: number): Promise<void> {
         let horseId: number;
         if (existingHorse) {
           const updates: Partial<typeof horses.$inferInsert> = {};
-          if (existingHorse.name !== horseFolder.name) updates.name = horseFolder.name;
+          if (existingHorse.name !== horseFolder.name)
+            updates.name = horseFolder.name;
           if (existingHorse.herdId !== herdId) {
             updates.herdId = herdId;
             filesMoved++;
           }
           if (Object.keys(updates).length > 0) {
-            await db.update(horses).set(updates).where(eq(horses.id, existingHorse.id));
-            if (updates.name) console.log(`  Renamed horse: ${existingHorse.name} -> ${horseFolder.name}`);
-            if (updates.herdId) console.log(`  Moved horse: ${horseFolder.name} to ${herdFolder.name}`);
+            await db
+              .update(horses)
+              .set(updates)
+              .where(eq(horses.id, existingHorse.id));
           }
           horseId = existingHorse.id;
         } else {
@@ -103,26 +259,29 @@ export async function runSync(syncRunId: number): Promise<void> {
           horseId = newHorse.id;
         }
 
-        // 3. List image files within this horse folder
         const driveStart = Date.now();
         const imageFiles = await listImageFiles(horseFolder.id);
         const driveMs = Date.now() - driveStart;
         filesScanned += imageFiles.length;
 
-        // Batch: fetch all existing photos for this horse's drive file IDs in one query
         const dbStart = Date.now();
-        const driveFileIds = imageFiles.map(f => f.id);
-        const existingPhotos = driveFileIds.length > 0
-          ? await db
-              .select()
-              .from(photos)
-              .where(inArray(photos.driveFileId, driveFileIds))
-          : [];
-        const existingByDriveId = new Map(existingPhotos.map(p => [p.driveFileId, p]));
+        const driveFileIds = imageFiles.map((f) => f.id);
+        const existingPhotos =
+          driveFileIds.length > 0
+            ? await db
+                .select()
+                .from(photos)
+                .where(inArray(photos.driveFileId, driveFileIds))
+            : [];
+        const existingByDriveId = new Map(
+          existingPhotos.map((p) => [p.driveFileId, p])
+        );
 
-        // Collect inserts and updates
         const toInsert: (typeof photos.$inferInsert)[] = [];
-        const toUpdate: { id: number; updates: Partial<typeof photos.$inferInsert> }[] = [];
+        const toUpdate: {
+          id: number;
+          updates: Partial<typeof photos.$inferInsert>;
+        }[] = [];
 
         for (const file of imageFiles) {
           activeDriveFileIds.push(file.id);
@@ -130,7 +289,8 @@ export async function runSync(syncRunId: number): Promise<void> {
 
           if (existing) {
             const updates: Partial<typeof photos.$inferInsert> = {};
-            if (existing.driveMd5 !== file.md5Checksum) updates.driveMd5 = file.md5Checksum;
+            if (existing.driveMd5 !== file.md5Checksum)
+              updates.driveMd5 = file.md5Checksum;
             if (existing.filename !== file.name) updates.filename = file.name;
             if (existing.horseId !== horseId) {
               updates.horseId = horseId;
@@ -150,13 +310,11 @@ export async function runSync(syncRunId: number): Promise<void> {
           }
         }
 
-        // Batch insert new photos
         if (toInsert.length > 0) {
           await db.insert(photos).values(toInsert);
           filesAdded += toInsert.length;
         }
 
-        // Batch updates (still individual but could be parallelized)
         if (toUpdate.length > 0) {
           await Promise.all(
             toUpdate.map(({ id, updates }) =>
@@ -166,7 +324,6 @@ export async function runSync(syncRunId: number): Promise<void> {
         }
         const dbMs = Date.now() - dbStart;
 
-        // Update progress after each horse
         horsesScanned++;
         await db
           .update(syncRuns)
@@ -179,11 +336,12 @@ export async function runSync(syncRunId: number): Promise<void> {
           .where(eq(syncRuns.id, syncRunId));
 
         const totalMs = Date.now() - horseStart;
-        console.log(`  ${horseFolder.name}: ${imageFiles.length} files, drive=${driveMs}ms db=${dbMs}ms total=${totalMs}ms`);
+        console.log(
+          `  ${horseFolder.name}: ${imageFiles.length} files, drive=${driveMs}ms db=${dbMs}ms total=${totalMs}ms`
+        );
       }
     }
 
-    // 4. Detect deletions: remove DB records for things no longer in Drive
     if (activeDriveFileIds.length > 0) {
       const deletedPhotos = await db
         .delete(photos)
@@ -204,7 +362,13 @@ export async function runSync(syncRunId: number): Promise<void> {
         .where(notInArray(herds.driveFolderId, activeDriveHerdIds));
     }
 
-    // Update sync run
+    // Store Changes API token for future incremental syncs
+    await db.execute(
+      sql`INSERT INTO drive_sync_state (id, changes_token, updated_at)
+          VALUES (1, ${startToken}, now())
+          ON CONFLICT (id) DO UPDATE SET changes_token = ${startToken}, updated_at = now()`
+    );
+
     await db
       .update(syncRuns)
       .set({
@@ -217,7 +381,9 @@ export async function runSync(syncRunId: number): Promise<void> {
       })
       .where(eq(syncRuns.id, syncRunId));
 
-    console.log(`\nSync complete: scanned=${filesScanned}, added=${filesAdded}, removed=${filesRemoved}, moved=${filesMoved}`);
+    console.log(
+      `\nFull sync complete: scanned=${filesScanned}, added=${filesAdded}, removed=${filesRemoved}, moved=${filesMoved}`
+    );
   } catch (err) {
     await db
       .update(syncRuns)
