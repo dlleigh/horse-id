@@ -1,0 +1,3 @@
+ALTER TABLE sync_runs ADD COLUMN last_heartbeat TIMESTAMPTZ DEFAULT now();
+ALTER TABLE sync_runs ADD COLUMN herds_total INTEGER DEFAULT 0;
+ALTER TABLE sync_runs ADD COLUMN herds_scanned INTEGER DEFAULT 0;

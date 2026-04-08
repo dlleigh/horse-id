@@ -6,14 +6,23 @@ import { runSync } from "../services/sync.js";
 
 const router = Router();
 
-// POST /api/sync — trigger a sync
+// POST /api/sync — create sync run row, kick off work in background
 router.post("/", async (_req, res) => {
   try {
-    const { syncRunId } = await runSync();
-    res.json({ syncRunId });
+    const [syncRun] = await db
+      .insert(syncRuns)
+      .values({ status: "running" })
+      .returning({ id: syncRuns.id });
+
+    // Fire and forget — frontend polls GET /api/sync/:id
+    runSync(syncRun.id).catch(err => {
+      console.error("Sync failed:", err);
+    });
+
+    res.json({ syncRunId: syncRun.id });
   } catch (err) {
-    console.error("Sync failed:", err);
-    res.status(500).json({ error: "Sync failed" });
+    console.error("Sync failed to start:", err);
+    res.status(500).json({ error: "Sync failed to start" });
   }
 });
 

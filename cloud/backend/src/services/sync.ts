@@ -1,19 +1,12 @@
-import { eq, and, notInArray } from "drizzle-orm";
+import { eq, notInArray, inArray } from "drizzle-orm";
 import { db } from "../db/client.js";
 import { herds, horses, photos, syncRuns } from "../db/schema.js";
 import { getConfig } from "./config.js";
 import { listFolders, listImageFiles } from "./drive.js";
 
-export async function runSync(): Promise<{ syncRunId: number }> {
+export async function runSync(syncRunId: number): Promise<void> {
   const config = getConfig();
   const rootFolderId = config.googleDriveDirectoryId;
-
-  // Create sync run
-  const [syncRun] = await db
-    .insert(syncRuns)
-    .values({ status: "running" })
-    .returning({ id: syncRuns.id });
-  const syncRunId = syncRun.id;
 
   let filesScanned = 0;
   let filesAdded = 0;
@@ -30,7 +23,23 @@ export async function runSync(): Promise<{ syncRunId: number }> {
     const activeDriveHorseIds: string[] = [];
     const activeDriveFileIds: string[] = [];
 
+    // First pass: list all herd and horse folders to get total count
+    const herdData: { folder: typeof herdFolders[0]; horseFolders: typeof herdFolders }[] = [];
+    let totalHorses = 0;
     for (const herdFolder of herdFolders) {
+      const horseFolders = await listFolders(herdFolder.id);
+      herdData.push({ folder: herdFolder, horseFolders });
+      totalHorses += horseFolders.length;
+    }
+    console.log(`  Found ${totalHorses} horses across ${herdFolders.length} herds`);
+
+    let horsesScanned = 0;
+    await db
+      .update(syncRuns)
+      .set({ herdsTotal: totalHorses, lastHeartbeat: new Date() })
+      .where(eq(syncRuns.id, syncRunId));
+
+    for (const { folder: herdFolder, horseFolders } of herdData) {
       activeDriveHerdIds.push(herdFolder.id);
 
       // Upsert herd
@@ -58,10 +67,8 @@ export async function runSync(): Promise<{ syncRunId: number }> {
         console.log(`  New herd: ${herdFolder.name}`);
       }
 
-      // 2. List horse folders within this herd
-      const horseFolders = await listFolders(herdFolder.id);
-
       for (const horseFolder of horseFolders) {
+        const horseStart = Date.now();
         activeDriveHorseIds.push(horseFolder.id);
 
         // Upsert horse
@@ -97,40 +104,82 @@ export async function runSync(): Promise<{ syncRunId: number }> {
         }
 
         // 3. List image files within this horse folder
+        const driveStart = Date.now();
         const imageFiles = await listImageFiles(horseFolder.id);
+        const driveMs = Date.now() - driveStart;
         filesScanned += imageFiles.length;
+
+        // Batch: fetch all existing photos for this horse's drive file IDs in one query
+        const dbStart = Date.now();
+        const driveFileIds = imageFiles.map(f => f.id);
+        const existingPhotos = driveFileIds.length > 0
+          ? await db
+              .select()
+              .from(photos)
+              .where(inArray(photos.driveFileId, driveFileIds))
+          : [];
+        const existingByDriveId = new Map(existingPhotos.map(p => [p.driveFileId, p]));
+
+        // Collect inserts and updates
+        const toInsert: (typeof photos.$inferInsert)[] = [];
+        const toUpdate: { id: number; updates: Partial<typeof photos.$inferInsert> }[] = [];
 
         for (const file of imageFiles) {
           activeDriveFileIds.push(file.id);
+          const existing = existingByDriveId.get(file.id);
 
-          const [existingPhoto] = await db
-            .select()
-            .from(photos)
-            .where(eq(photos.driveFileId, file.id));
-
-          if (existingPhoto) {
-            // Update if md5 changed or horse moved
+          if (existing) {
             const updates: Partial<typeof photos.$inferInsert> = {};
-            if (existingPhoto.driveMd5 !== file.md5Checksum) updates.driveMd5 = file.md5Checksum;
-            if (existingPhoto.filename !== file.name) updates.filename = file.name;
-            if (existingPhoto.horseId !== horseId) {
+            if (existing.driveMd5 !== file.md5Checksum) updates.driveMd5 = file.md5Checksum;
+            if (existing.filename !== file.name) updates.filename = file.name;
+            if (existing.horseId !== horseId) {
               updates.horseId = horseId;
-              updates.processingStatus = "pending"; // re-process if moved
+              updates.processingStatus = "pending";
             }
             if (Object.keys(updates).length > 0) {
-              await db.update(photos).set(updates).where(eq(photos.id, existingPhoto.id));
+              toUpdate.push({ id: existing.id, updates });
             }
           } else {
-            await db.insert(photos).values({
+            toInsert.push({
               horseId,
               filename: file.name,
               driveFileId: file.id,
               driveMd5: file.md5Checksum,
               processingStatus: "pending",
             });
-            filesAdded++;
           }
         }
+
+        // Batch insert new photos
+        if (toInsert.length > 0) {
+          await db.insert(photos).values(toInsert);
+          filesAdded += toInsert.length;
+        }
+
+        // Batch updates (still individual but could be parallelized)
+        if (toUpdate.length > 0) {
+          await Promise.all(
+            toUpdate.map(({ id, updates }) =>
+              db.update(photos).set(updates).where(eq(photos.id, id))
+            )
+          );
+        }
+        const dbMs = Date.now() - dbStart;
+
+        // Update progress after each horse
+        horsesScanned++;
+        await db
+          .update(syncRuns)
+          .set({
+            herdsScanned: horsesScanned,
+            filesScanned,
+            filesAdded,
+            lastHeartbeat: new Date(),
+          })
+          .where(eq(syncRuns.id, syncRunId));
+
+        const totalMs = Date.now() - horseStart;
+        console.log(`  ${horseFolder.name}: ${imageFiles.length} files, drive=${driveMs}ms db=${dbMs}ms total=${totalMs}ms`);
       }
     }
 
@@ -169,7 +218,6 @@ export async function runSync(): Promise<{ syncRunId: number }> {
       .where(eq(syncRuns.id, syncRunId));
 
     console.log(`\nSync complete: scanned=${filesScanned}, added=${filesAdded}, removed=${filesRemoved}, moved=${filesMoved}`);
-    return { syncRunId };
   } catch (err) {
     await db
       .update(syncRuns)

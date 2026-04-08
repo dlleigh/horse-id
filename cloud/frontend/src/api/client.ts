@@ -44,6 +44,23 @@ export interface SyncRun {
   filesMoved: number;
 }
 
+export interface Stats {
+  total: number;
+  pending: number;
+  processing: number;
+  ready: number;
+  error: number;
+  syncStatus: 'running' | null;
+  syncProgressTotal: number | null;
+  syncProgressDone: number | null;
+  lastSync: {
+    filesScanned: number;
+    filesAdded: number;
+    filesRemoved: number;
+    filesMoved: number;
+  } | null;
+}
+
 export interface Prediction {
   horse_id: number;
   horse_name: string;
@@ -84,6 +101,10 @@ export async function patchPhoto(photoId: number, excluded: boolean): Promise<{ 
 export function photoImageUrl(photoId: number, size?: 'thumb'): string {
   const url = `${BASE}/photos/${photoId}/image`;
   return size ? `${url}?size=${size}` : url;
+}
+
+export async function getStats(): Promise<Stats> {
+  return fetchJson(`${BASE}/stats`);
 }
 
 export async function triggerSync(): Promise<{ syncRunId: number }> {
