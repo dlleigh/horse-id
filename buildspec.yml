@@ -6,16 +6,16 @@ env:
     # Replace with your AWS account ID and desired region
     AWS_ACCOUNT_ID: "685175429625"
     AWS_DEFAULT_REGION: "us-east-2" # Or your specific region (e.g., us-east-1)
-    
+
     # The name of your ECR repository where both images will be stored
     ECR_REPOSITORY_NAME: "horse-id-lambda-repo"
-    
+
     # Image tags
     RESPONDER_IMAGE_TAG: "responder-latest"
     ML_WORKER_IMAGE_TAG: "ml-worker-latest"
 
     # Lambda function names to update after push
-    RESPONDER_LAMBDA_NAME: "horse-id-responder"
+    RESPONDER_LAMBDA_NAME: "twilio-webhook-responder"
     ML_WORKER_LAMBDA_NAME: "horse-id-ml-worker"
 
 phases:
@@ -43,8 +43,7 @@ phases:
   post_build:
     commands:
       - echo "Build completed on $(date)"
-      - echo "Pushing the Docker image to ECR..."
-      # Push both images to ECR
+      - echo "Pushing Docker images to ECR..."
       - docker push $REPOSITORY_URI:$RESPONDER_IMAGE_TAG
       - docker push $REPOSITORY_URI:$ML_WORKER_IMAGE_TAG
 
@@ -55,5 +54,4 @@ phases:
       - echo "Lambda functions updated."
 
 artifacts:
-  # Specify any files that CodeBuild should output after the build (e.g., for CodeDeploy)
-  files: [] # No artifacts needed for this multi-image push scenario
+  files: []
