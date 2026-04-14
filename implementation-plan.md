@@ -4,90 +4,117 @@
 
 Migrating the Horse ID system from a local CLI pipeline (CSV files, local scripts, S3+pickle features) to a serverless cloud platform. The new system uses Google Drive as the photo source of truth, Neon Postgres+pgvector as the database, AWS Lambda for all compute, and a React SPA for the web interface. The existing SMS/Twilio identification flow continues but reads from the new database instead of S3 CSVs.
 
+## Current Status
+
+| Phase | Status | Notes |
+|-------|--------|-------|
+| 1 - Migration to Drive | **Complete** | |
+| 2 - Foundation | **Complete** | 3 migrations. Changes API + incremental sync added. |
+| 3 - ML Workers | **Complete** | All workers + `syncer.py` and `lambda_utils.py`. |
+| 4 - API Routes | **Complete** | 7 routes. Backend runs as Express server (not yet Lambda). |
+| 5 - SMS Flow | **Complete** | Existing responder stayed in project root. No `cloud/sms/` needed. |
+| 6 - WebSocket | **Not yet implemented** | Using 2-second HTTP polling for now. |
+| 7 - Frontend | **Complete** | Dashboard, HerdDetail, HorseDetail, Identify pages. |
+| 8 - Deployment | **Partial** | No SAM template. CodeBuild + ECR + manual Lambda config. |
+| 9 - Production Cutover | **In Progress** | Pipeline running. Twilio webhook pointed at responder Lambda. |
+| 10 - Legacy Cleanup | **Not started** | All legacy scripts still in project root. |
+
+### Key deviations from original plan
+
+1. **No SAM template** — Infrastructure managed via AWS console + CodeBuild, not IaC
+2. **No `cloud/sms/` directory** — Responder stayed in project root (`Dockerfile.responder`, `webhook_responder.py`)
+3. **No WebSocket** — HTTP polling works well enough
+4. **No Better Auth** — Not yet implemented
+5. **Backend is Express server, not Lambda** — Runs locally / on EC2, not behind API Gateway yet
+6. **2 Lambda functions, not 4** — `twilio-webhook-responder` + `horse-id-ml-worker` only
+7. **Event-driven pipeline** — Added post-plan. Uses Drive Changes API for incremental sync, Lambda self-chaining for detect→extract. Replaces batch-oriented approach.
+
+### Known gaps
+
+- **Full sync doesn't chain to detection** — `runFullSync()` inserts photos as `pending` but doesn't fan out to Lambda. Incremental sync works end-to-end.
+
 ## Tech Decisions
 
 | Concern | Choice | Rationale |
 |---------|--------|-----------|
 | Frontend | **React + Vite + TypeScript** | Simple SPA, no SSR needed. Vite is fast, minimal config |
-| API framework | **Node.js + Express** | Same ecosystem as React + Better Auth. Runs in Lambda via `serverless-http` or direct handler |
+| API framework | **Node.js + Express** | Same ecosystem as React. Runs as standalone server for now |
 | ML workers | **Python + Lambda** | Existing ML code is Python (torch, timm, ultralytics, wildlife-tools). Separate container image |
-| IaC | **AWS SAM** | Lambda-centric, simpler than CDK for this scale |
+| IaC | ~~AWS SAM~~ **CodeBuild + manual** | SAM deferred. CodeBuild builds/pushes images, updates Lambdas |
 | Google Drive | **googleapis** (Node, for API/sync) + **google-api-python-client** (Python, for ML workers downloading images) | Each runtime uses its native SDK |
-| Real-time updates | **API Gateway WebSocket API** | Native AWS, Lambda-compatible |
-| Auth | **Better Auth (Neon Auth)** | Built into Neon, native JS SDK for both Express and React |
+| Real-time updates | ~~API Gateway WebSocket~~ **HTTP polling** | Not yet implemented. Using 2-second polling for now |
+| Auth | ~~Better Auth~~ **None (deferred)** | Not yet implemented |
 | CSS | **Tailwind** | Fast to build, responsive out of the box |
 | ORM | **Drizzle** | Lightweight, TypeScript-native, works well with Neon's serverless driver |
 
-## Project Structure (new `cloud/` directory)
+## Project Structure
 
 ```
 cloud/
-├── template.yaml                # SAM template
-├── docker-compose.yml           # Local dev
-├── .env.example
+├── docker-compose.yml           # Local dev (Postgres+pgvector)
+├── .env
 │
 ├── frontend/                    # React + Vite + TypeScript
 │   ├── package.json
 │   ├── src/
 │   │   ├── App.tsx
-│   │   ├── api/                 # API client (fetch wrappers)
-│   │   ├── components/          # UI components
-│   │   ├── pages/               # Route pages
-│   │   └── hooks/               # useWebSocket, useAuth
+│   │   ├── api/client.ts        # API client (typed fetch wrappers)
+│   │   ├── components/Layout.tsx
+│   │   └── pages/
+│   │       ├── Dashboard.tsx     # Stats, sync/process controls, error list
+│   │       ├── HerdDetail.tsx    # Horses in a herd
+│   │       ├── HorseDetail.tsx   # Photos for a horse, exclude toggle
+│   │       └── Identify.tsx      # Upload image, see matches
 │   └── vite.config.ts
 │
-├── backend/                     # Node.js + Express (API + sync)
+├── backend/                     # Node.js + Express (standalone server)
 │   ├── package.json
 │   ├── tsconfig.json
 │   ├── src/
-│   │   ├── handler.ts           # Lambda entry point (wraps Express app)
 │   │   ├── app.ts               # Express app setup
 │   │   ├── routes/
-│   │   │   ├── auth.ts          # Better Auth routes
-│   │   │   ├── sync.ts          # POST /sync, GET /sync/status
-│   │   │   ├── horses.ts        # GET /horses, GET /horses/:id, PATCH exclude
-│   │   │   ├── herds.ts         # GET /herds, GET /herds/:id/horses
-│   │   │   ├── photos.ts        # GET /photos/:id, PATCH exclude/include
-│   │   │   └── identify.ts      # POST /identify (upload → invoke ML worker → pgvector query)
+│   │   │   ├── sync.ts          # POST /sync, GET /sync/:id
+│   │   │   ├── process.ts       # POST /process (resetStuck + fanOut)
+│   │   │   ├── stats.ts         # GET /stats (photo counts + sync status)
+│   │   │   ├── herds.ts         # GET /herds
+│   │   │   ├── horses.ts        # GET /herds/:id/horses, GET /horses/:id
+│   │   │   ├── photos.ts        # PATCH /photos/:id, GET /photos/errors, GET /photos/:id/image
+│   │   │   └── identify.ts      # POST /identify (upload → Lambda → results)
 │   │   ├── db/
 │   │   │   ├── schema.ts        # Drizzle schema definitions
 │   │   │   ├── client.ts        # Neon serverless driver connection
 │   │   │   └── migrate.ts       # Migration runner
-│   │   ├── services/
-│   │   │   ├── drive.ts         # Google Drive API: list folders, list files, diff
-│   │   │   ├── sync.ts          # Sync orchestration: diff → DB updates → fan-out workers
-│   │   │   ├── config.ts        # SSM Parameter Store loader (+ .env fallback)
-│   │   │   └── websocket.ts     # Push progress to WebSocket clients
-│   │   └── auth/
-│   │       └── index.ts         # Better Auth server setup
-│   └── Dockerfile               # Node.js Lambda image
+│   │   └── services/
+│   │       ├── drive.ts         # Google Drive API (list, changes, download proxy)
+│   │       ├── sync.ts          # Sync orchestration (Changes API + full scan fallback)
+│   │       ├── process.ts       # fanOutProcessing + resetStuckPhotos
+│   │       └── config.ts        # Config loader (.env)
 │
-├── workers/                     # Python ML workers
+├── workers/                     # Python ML workers (Lambda container)
 │   ├── requirements.txt
-│   ├── Dockerfile               # ML image (torch, timm, YOLO, wildlife-tools, model pre-downloaded)
-│   ├── handler.py               # Lambda entry: routes to detector or extractor based on event
-│   ├── detector.py              # Multi-horse detection (reuses horse_detection_lib.py logic)
-│   ├── extractor.py             # Feature extraction (reuses wildlife-mega-L-384 pipeline)
-│   ├── identifier.py            # Query image identification (extract features → pgvector query)
-│   ├── drive_client.py          # Download images from Drive by file ID
-│   └── db.py                    # psycopg2 + pgvector writes
-│
-├── sms/                         # Twilio SMS handlers (updated from existing)
-│   ├── Dockerfile               # Lightweight: boto3 + twilio only
-│   ├── webhook_responder.py     # Receives Twilio webhook, invokes identifier worker
-│   └── requirements.txt
+│   ├── Dockerfile               # ML image (torch, YOLO, wildlife-mega-L-384)
+│   ├── handler.py               # Lambda entry: routes detect/extract/sync_batch/identify
+│   ├── detector.py              # YOLO classification → chains to extraction
+│   ├── extractor.py             # Feature extraction → pgvector
+│   ├── identifier.py            # Query image → similarity search
+│   ├── syncer.py                # Batch sync: upsert herds/horses/photos → chain to detect
+│   ├── lambda_utils.py          # Cross-Lambda invocation helper
+│   ├── drive_client.py          # Download images from Drive
+│   └── db.py                    # psycopg2 + pgvector
 │
 ├── db/
 │   └── migrations/
-│       └── 001_initial.sql      # Schema + pgvector extension
+│       ├── 001_initial.sql      # Schema + pgvector extension
+│       ├── 002_sync_progress.sql # Sync progress columns
+│       └── 003_drive_sync_state.sql # Changes API token + photos.updated_at
 │
-├── scripts/
-│   ├── migrate_to_drive.py      # One-time: build Drive folder structure from existing data
-│   └── seed_ssm.sh              # Populate SSM parameters from .env
-│
-└── tests/
-    ├── backend/                 # Jest tests for API routes
-    └── workers/                 # Pytest for ML workers
+└── scripts/
+    └── migrate_to_drive.py      # One-time: populate Drive from existing data
+
+# Project root (not in cloud/):
+├── Dockerfile.responder         # Twilio webhook responder image
+├── webhook_responder.py         # SMS handler (invokes ml-worker for identify)
+└── buildspec.yml                # CodeBuild: build images → ECR → update Lambdas
 ```
 
 ## Database Schema
@@ -118,11 +145,18 @@ CREATE TABLE photos (
     filename TEXT NOT NULL,
     drive_file_id TEXT NOT NULL UNIQUE,
     drive_md5 TEXT,
-    processing_status TEXT DEFAULT 'pending',  -- pending, detecting, extracting, ready, excluded
+    processing_status TEXT DEFAULT 'pending',  -- pending, detecting, detected, extracting, ready, error
     detection_result TEXT,                      -- NULL, NONE, SINGLE, MULTIPLE
     excluded BOOLEAN DEFAULT FALSE,
-    created_at TIMESTAMPTZ DEFAULT now()
+    created_at TIMESTAMPTZ DEFAULT now(),
+    updated_at TIMESTAMPTZ DEFAULT now()        -- for stuck photo detection
 );
+
+-- Trigger to auto-update updated_at
+CREATE OR REPLACE FUNCTION update_updated_at() RETURNS TRIGGER AS $$
+BEGIN NEW.updated_at = now(); RETURN NEW; END; $$ LANGUAGE plpgsql;
+CREATE TRIGGER photos_updated_at BEFORE UPDATE ON photos
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 
 CREATE TABLE features (
     id SERIAL PRIMARY KEY,
@@ -139,31 +173,38 @@ CREATE TABLE sync_runs (
     started_at TIMESTAMPTZ DEFAULT now(),
     completed_at TIMESTAMPTZ,
     status TEXT DEFAULT 'running',  -- running, completed, failed
+    herds_total INTEGER DEFAULT 0,
+    herds_scanned INTEGER DEFAULT 0,
+    last_heartbeat TIMESTAMPTZ,
     files_scanned INTEGER DEFAULT 0,
     files_added INTEGER DEFAULT 0,
     files_removed INTEGER DEFAULT 0,
     files_moved INTEGER DEFAULT 0
 );
 
--- Better Auth manages its own user/session tables automatically
+CREATE TABLE drive_sync_state (
+    id INT PRIMARY KEY DEFAULT 1,
+    changes_token TEXT,
+    updated_at TIMESTAMPTZ DEFAULT now()
+);
 ```
 
-## Lambda Functions (4 container images)
+## Lambda Functions (2 container images)
 
 | Function | Runtime | Image | Memory | Timeout | Trigger |
 |----------|---------|-------|--------|---------|---------|
-| **api** | Node.js | `backend/` | 512 MB | 30s | API Gateway HTTP |
-| **ml-worker** | Python | `workers/` | 4096 MB | 15 min | Async invoke |
-| **webhook-responder** | Python | `sms/` | 256 MB | 10s | API Gateway HTTP |
-| **websocket-handler** | Node.js | `backend/` (same image) | 256 MB | 10s | API Gateway WebSocket |
+| **horse-id-ml-worker** | Python | `cloud/workers/Dockerfile` | 4096 MB | 15 min | Async invoke from backend or self-chain |
+| **twilio-webhook-responder** | Python | `Dockerfile.responder` | 256 MB | 10s | API Gateway HTTP (Twilio webhook) |
 
-The **ml-worker** handles detection, extraction, AND identification — the handler inspects `event.task` to route to the right function. One fat container image with both models pre-downloaded.
+The **ml-worker** handles detection, extraction, identification, AND sync batches — the handler inspects `event.task` to route to the right function. Tasks: `detect`, `extract`, `identify`, `sync_batch`. Self-chains detect→extract for SINGLE photos.
 
-The **webhook-responder** stays Python (minimal changes from existing). It invokes the ml-worker for identification instead of the old horse-id-processor.
+The **webhook-responder** is the original responder with minimal changes. Invokes ml-worker for identification.
+
+The **backend** runs as a standalone Express server (not a Lambda). It handles Drive API calls, sync orchestration, and serves the frontend API.
 
 ## Implementation Phases
 
-### Phase 1: Migration to Drive
+### Phase 1: Migration to Drive — COMPLETE
 **Populate Google Drive with existing data so all subsequent phases have real data to work with.**
 
 1. Set up Google Drive service account + share root folder
@@ -174,154 +215,108 @@ The **webhook-responder** stays Python (minimal changes from existing). It invok
    - Upload photos from S3/local storage into the appropriate folders
    - Log mapping of Drive folder/file IDs for verification
 3. Verify: folder structure matches expected herds/horses/photo counts
-4. This is a standalone script — no cloud infrastructure needed yet, just `google-api-python-client` + existing data files
 
-**Key files to read:**
-- `horse_herds.csv` — herd→horse mapping
-- Merged manifest CSV — photo→horse mapping + filenames
-- S3 bucket `horse-id-data` — source photos
-
-### Phase 2: Foundation
+### Phase 2: Foundation — COMPLETE
 **Database + Drive sync + local dev environment. Tested against real Drive data from Phase 1.**
 
-1. Create Neon project, enable pgvector, run schema migration
-2. `cloud/db/migrations/001_initial.sql` — schema above
-3. `cloud/backend/src/db/` — Drizzle schema + Neon serverless driver
-4. `cloud/backend/src/services/drive.ts` — Google Drive API client:
-   - `listHerdFolders(rootFolderId)` → top-level folders
-   - `listHorseFolders(herdFolderId)` → second-level folders
-   - `listImageFiles(horseFolderId)` → image files with metadata
-   - `getFileMetadata(fileId)` → md5Checksum, name, parents
-5. `cloud/backend/src/services/sync.ts` — sync orchestration:
-   - Walk Drive tree, diff against DB
-   - Apply changes: create/update/delete herds, horses, photos
-   - Queue new photos for processing (invoke ml-worker in batches)
+1. Neon project with pgvector. 3 migrations (001 initial, 002 sync progress, 003 drive sync state + updated_at)
+2. `cloud/backend/src/db/` — Drizzle schema + Neon serverless driver
+3. `cloud/backend/src/services/drive.ts` — Google Drive API client:
+   - `listFolders()`, `listImageFiles()` — for full scan
+   - `getStartPageToken()`, `getChanges()` — for Changes API incremental sync
+4. `cloud/backend/src/services/sync.ts` — sync orchestration:
+   - `runIncrementalSync()` — Changes API, dispatches `sync_batch` to Lambda
+   - `runFullSync()` — full Drive tree walk, direct DB upserts (first-time fallback)
    - Track progress in sync_runs table
-6. `cloud/docker-compose.yml` — Postgres+pgvector, Node.js backend
-7. `cloud/.env.example` — template for local config
-8. Run initial sync against real Drive → verify DB matches expected data
+5. `cloud/docker-compose.yml` — Postgres+pgvector for local dev
 
-### Phase 3: ML Workers
+### Phase 3: ML Workers — COMPLETE
 **Detection + extraction running in Lambda, writing to pgvector.**
 
-1. `cloud/workers/Dockerfile` — based on existing `Dockerfile.horse_id`:
-   - Python 3.13 Lambda base
-   - Pre-download YOLO model + wildlife-mega-L-384
-   - System deps from existing (mesa-libGL, etc.)
-2. `cloud/workers/handler.py` — routes `event.task` to detector/extractor/identifier
-3. `cloud/workers/detector.py`:
-   - Receives batch of photo IDs
-   - Downloads images from Drive via `drive_client.py`
-   - Runs YOLO classification (port logic from `horse_detection_lib.py`)
-   - Writes detection_result + processing_status to DB
-4. `cloud/workers/extractor.py`:
-   - Receives batch of photo IDs (SINGLE only)
-   - Downloads images from Drive
-   - Extracts embeddings via `DeepFeatures(backbone)` (same pattern as `horse_id.py:322`)
-   - INSERTs vectors into features table via pgvector
-   - Updates processing_status to 'ready'
-5. `cloud/workers/identifier.py`:
-   - Receives image URL/bytes
-   - Extracts query embedding
-   - Runs pgvector similarity query
-   - Returns top-N results
-6. `cloud/workers/db.py` — psycopg2 connection + pgvector registration
+1. `cloud/workers/Dockerfile` — Python 3.13 Lambda base, YOLO + wildlife-mega-L-384 pre-downloaded
+2. `cloud/workers/handler.py` — routes `event.task` to `detect`, `extract`, `identify`, `sync_batch`
+3. `cloud/workers/detector.py` — YOLO detection, marks NONE/SINGLE/MULTIPLE, self-chains to extract for SINGLE
+4. `cloud/workers/extractor.py` — wildlife-mega-L-384 embeddings → pgvector, marks photo `ready`
+5. `cloud/workers/identifier.py` — extract query embedding → pgvector cosine similarity → top-N results
+6. `cloud/workers/syncer.py` — *(added post-plan)* batch sync: upsert herds/horses/photos, chain to detect
+7. `cloud/workers/lambda_utils.py` — *(added post-plan)* cross-Lambda invocation helper
+8. `cloud/workers/db.py` — psycopg2 + pgvector, `update_photo_status()` sets `updated_at`
+9. `cloud/workers/drive_client.py` — download images from Drive by file ID
 
-**Reused from existing codebase:**
-- `horse_detection_lib.py` → `classify_horse_detection()`, depth analysis, edge cropping logic
-- `Dockerfile.horse_id` → base image, system deps, model pre-download pattern
-- `horse_id.py` lines 312-325 → model loading, transform pipeline, DeepFeatures usage
-- `config.yml` detection section → thresholds and parameters
-
-### Phase 4: API Routes
+### Phase 4: API Routes — COMPLETE
 **Express API serving data and triggering operations.**
 
-1. `cloud/backend/src/app.ts` — Express setup + middleware
-2. `cloud/backend/src/handler.ts` — Lambda wrapper (serverless-http or @vendia/serverless-express)
-3. Routes:
-   - `POST /api/sync` → triggers sync (invokes sync logic, returns sync_run ID)
-   - `GET /api/sync/:id` → sync status
-   - `GET /api/herds` → list herds with horse counts
-   - `GET /api/herds/:id/horses` → horses in herd with photo counts
+> **Deviation:** Backend runs as standalone Express server, not Lambda behind API Gateway. No `handler.ts` Lambda wrapper. No auth routes (Better Auth deferred).
+
+1. `cloud/backend/src/app.ts` — Express setup + middleware + route registration
+2. Routes:
+   - `POST /api/sync` → triggers incremental sync, returns sync_run ID
+   - `GET /api/sync/:id` → sync run status
+   - `POST /api/process` → resetStuckPhotos + fanOutProcessing (detect + extract)
+   - `GET /api/stats` → photo counts by status + sync status
+   - `GET /api/herds` → list herds with horse/photo counts
+   - `GET /api/herds/:id/horses` → horses in herd
    - `GET /api/horses/:id` → horse detail with photos
-   - `PATCH /api/photos/:id` → toggle exclude/include
-   - `POST /api/identify` → upload image, optional herd filter, returns matches
-   - `GET /api/photos/:id/image` → proxy image from Drive (avoids exposing Drive creds to client)
-4. `cloud/backend/src/services/config.ts` — SSM loader with .env fallback
+   - `PATCH /api/photos/:id` → toggle exclude
+   - `GET /api/photos/errors` → list error photos
+   - `GET /api/photos/:id/image` → proxy image from Drive
+   - `POST /api/identify` → upload image → invoke ml-worker → return matches
+3. `cloud/backend/src/services/process.ts` — `fanOutProcessing()` + `resetStuckPhotos()`
 
-**Identification flow (POST /api/identify):**
-1. Accept multipart image upload
-2. Save to /tmp, invoke ml-worker with `task: 'identify'`
-3. Worker extracts features, queries pgvector, returns results
-4. API returns ranked matches with horse names, herds, confidence, reference photo IDs
-
-### Phase 5: SMS Flow Update
+### Phase 5: SMS Flow — COMPLETE (no changes needed)
 **Existing Twilio SMS backed by Neon.**
 
-1. `cloud/sms/webhook_responder.py` — port from existing `webhook_responder.py`:
-   - Same Twilio signature validation
-   - Parse herd filter from message text
-   - Invoke ml-worker (instead of old horse-id-processor) with `task: 'identify'`
-   - Config from SSM/env vars
-2. ML worker's `identifier.py` handles the actual identification (shared with web flow)
-3. Worker sends results back via Twilio API (same as current `horse_id.py:474-483`)
+> **Deviation:** The `cloud/sms/` directory was never created. The existing `webhook_responder.py` and `Dockerfile.responder` in the project root already worked — they just needed the ml-worker Lambda name updated. Built and deployed via CodeBuild alongside the ml-worker.
 
-### Phase 6: WebSocket Progress
+1. `webhook_responder.py` (project root) — receives Twilio webhook, invokes ml-worker with `task: 'identify'`
+2. `Dockerfile.responder` (project root) — lightweight image: boto3 + twilio
+3. ML worker's `identifier.py` handles identification (shared with web flow)
+
+### Phase 6: WebSocket Progress — NOT YET IMPLEMENTED
 **Real-time updates during sync and processing.**
 
-1. API Gateway WebSocket API with $connect/$disconnect/$default routes
-2. `cloud/backend/src/services/websocket.ts`:
-   - Track connection IDs in memory (or simple DynamoDB table if needed)
-   - `broadcast(event)` → POST to API Gateway Management API
-3. Sync and workers post progress events: `{type: 'sync_progress', filesScanned, ...}`, `{type: 'photo_status', photoId, status}`
-4. Workers call a shared "notify" function (invoke a small Lambda or write to DynamoDB stream)
+> Not yet implemented. Currently using 2-second HTTP polling (`setInterval` in Dashboard.tsx).
 
-### Phase 7: Frontend
+### Phase 7: Frontend — COMPLETE
 **React SPA.**
 
+> **Deviation:** No auth pages (Better Auth deferred). No WebSocket (polling instead). Components are inlined in pages rather than separate files.
+
 1. **Pages:**
-   - `/login`, `/signup` — Better Auth client
-   - `/` — Dashboard: sync button, last sync info, processing queue
-   - `/herds` → `/herds/:id` — herd list → horses in herd
-   - `/horses/:id` — horse detail with photo grid
-   - `/identify` — upload/camera capture, herd filter dropdown, results
-2. **Components:**
-   - `SyncButton` + `SyncProgress` (WebSocket-driven)
-   - `HorseCard` (thumbnail, name, herd, photo count)
-   - `PhotoGrid` (with exclude toggle per photo, status indicators)
-   - `IdentifyForm` (drag-drop/camera, herd select)
-   - `MatchResults` (ranked cards with confidence bars + reference photos)
+   - `/` — Dashboard: sync/process buttons, stats bar, error list, herd cards
+   - `/herds/:id` — horses in herd with photo counts + thumbnails
+   - `/horses/:id` — photo grid with exclude toggle
+   - `/identify` — upload image, optional herd filter, ranked results
+2. **Components:** `Layout.tsx` (nav wrapper)
 3. Photo display: all images proxied via `GET /api/photos/:id/image`
-4. Better Auth React client for auth state
+4. Polling: 2-second interval while sync running or photos processing
 
-### Phase 8: IaC + Deployment
-**SAM template + CI/CD.**
+### Phase 8: Deployment — PARTIAL
+**CI/CD via CodeBuild.**
 
-1. `cloud/template.yaml` — SAM template:
-   - API Gateway HTTP API
-   - API Gateway WebSocket API
-   - Lambda functions (4)
-   - S3 bucket for frontend
-   - CloudFront distribution
-   - SSM parameter references
-   - IAM roles (Lambda execution, Drive access, SSM read)
-2. Update `buildspec.yml` — build Docker images + frontend, `sam deploy`
-3. `cloud/scripts/seed_ssm.sh` — populate SSM from .env for initial deploy
+> **Deviation:** No SAM template. Infrastructure created manually via AWS console. CodeBuild handles image builds and Lambda updates only.
 
-### Phase 9: Production Cutover
+1. `buildspec.yml` — CodeBuild pipeline:
+   - Builds `Dockerfile.responder` → `responder-latest` tag
+   - Builds `cloud/workers/Dockerfile` → `ml-worker-latest` tag
+   - Pushes both to ECR (`horse-id-lambda-repo`)
+   - Updates Lambda function code for `twilio-webhook-responder` and `horse-id-ml-worker`
+2. Lambda functions, IAM roles, API Gateway configured manually in AWS console
+3. Backend runs as standalone Express server (not deployed via CI/CD yet)
+
+### Phase 9: Production Cutover — IN PROGRESS
 **Switch live traffic to new system.**
 
-1. Deploy full stack via SAM
-2. Trigger production sync (Drive already populated in Phase 1)
-3. Verify: horse counts, photo counts, feature vector counts match expected
-4. Run identification on known test images, compare accuracy to current system
-5. Point Twilio webhook URL to new webhook-responder
-6. Deprecate old S3 CSVs/pickles
+1. ~~Deploy full stack via SAM~~ Lambda functions deployed manually + CodeBuild
+2. ✅ Production sync run — ~5000+ photos synced from Drive
+3. ✅ Detection + extraction pipeline running (event-driven)
+4. ✅ Twilio webhook pointed at `twilio-webhook-responder` Lambda
+5. Remaining: verify identification accuracy, deprecate old S3 data
 
-### Phase 10: Legacy Cleanup
+### Phase 10: Legacy Cleanup — NOT STARTED
 **Move old CLI/CSV pipeline code out of the way.**
 
-Move the following to a `legacy/` folder (preserving git history):
+All legacy scripts still in project root. Move to `legacy/` when ready:
 - `ingest_from_dir.py`, `ingest_from_email.py` — old ingestion scripts
 - `normalize_horse_names.py` — CLI name normalization (replaced by Drive folder names)
 - `multi_horse_detector.py` — local detection script (replaced by ml-worker Lambda)
@@ -333,72 +328,80 @@ Move the following to a `legacy/` folder (preserving git history):
 - `run_pipeline.py`, `pipeline_lock.py` — pipeline orchestration (replaced by sync)
 - `parse_horse_herds.py` — Excel parser (herds now from Drive folders)
 - `test_lambda_app.py` — old Lambda test UI
-- `Dockerfile.horse_id`, `Dockerfile.responder` — old Lambda images (replaced by `cloud/` images)
+- `Dockerfile.horse_id` — old ML image (replaced by `cloud/workers/Dockerfile`)
 - `horse-id-requirements.txt`, `responder-requirements.txt` — old requirements
-- Old `tests/` that reference removed scripts
 
 Keep in project root (still used):
-- `horse_detection_lib.py` — detection logic reused by ml-worker (or copy into `cloud/workers/`)
-- `config.yml` — reference for detection thresholds (parameters migrated to SSM)
-- `horse_id.py`, `webhook_responder.py` — reference only (logic ported to `cloud/`)
+- `horse_detection_lib.py` — detection logic reused by ml-worker
+- `config.yml` — detection thresholds referenced by workers
+- `webhook_responder.py`, `Dockerfile.responder` — still actively deployed
 - `CLAUDE.md` — update to reflect new architecture
+
+## Event-Driven Pipeline (added post-plan)
+
+Added after the original plan was written. Replaces the batch-oriented sync→detect→extract approach.
+
+### Architecture
+
+```
+User clicks Sync
+  → Backend calls Drive Changes API (or full scan if first time)
+  → Groups changed files into batches
+  → Invokes ml-worker Lambda with task: sync_batch (async, per batch)
+
+sync_batch Lambda (per batch of changed files)
+  → Upserts herds/horses/photos in DB
+  → Invokes ml-worker Lambda with task: detect (for new/modified photos)
+
+detect Lambda (per batch)
+  → Runs YOLO on each photo
+  → For SINGLE photos, self-invokes with task: extract
+
+extract Lambda (per batch)
+  → Extracts features, inserts into pgvector
+  → Photo is "ready"
+```
+
+Each stage chains to the next. No orchestrator, no timers, no polling loops.
+
+### Recovery
+
+`POST /api/process` (Reprocess button):
+1. `resetStuckPhotos()` — resets photos stuck in `detecting`/`extracting` >15 minutes
+2. `fanOutProcessing("detect")` — dispatches pending photos to Lambda
+3. `fanOutProcessing("extract")` — dispatches detected SINGLE photos to Lambda
+
+### Known gap
+
+`runFullSync()` (first-time sync with no Changes API token) inserts photos as `pending` but does NOT fan out to Lambda. Need to add `fanOutProcessing("detect")` at the end of full sync. Incremental sync works end-to-end.
 
 ## Testing Strategy
 
-Essential integration tests only — focused on the critical paths that would be painful to debug without tests.
+> **Status:** No automated tests written yet. Testing has been manual via the web UI and CloudWatch logs.
 
-**~15-20 tests across 4 test files:**
-
-### `cloud/tests/backend/sync.test.ts` (Jest)
-- Sync with mocked Drive API → verify correct herds/horses/photos created in DB
-- Sync detects new images, moved horses, deleted images
-- Sync skips unchanged images (matching drive_file_id + md5)
-- Sync handles renamed folders (herd or horse rename in Drive)
+Planned integration tests (not yet implemented):
 
 ### `cloud/tests/workers/test_detector.py` (Pytest)
 - Detection classifies known SINGLE/MULTIPLE/NONE images correctly
 - Detection writes results to DB and updates processing_status
-- Batch of mixed images processed correctly
-- Port relevant cases from existing `tests/test_detection_algorithms.py`
 
 ### `cloud/tests/workers/test_identifier.py` (Pytest)
 - Feature extraction produces 384-dim vector, written to pgvector
 - Identification query returns correct top-N matches
 - Herd filter narrows results correctly
-- End-to-end: image in → correct horse name out
-
-### `cloud/tests/backend/identify.test.ts` (Jest)
-- POST /api/identify with valid image returns ranked matches
-- POST /api/identify with herd filter returns only horses from that herd
-- SMS flow: webhook → worker → Twilio response (mocked Twilio)
-
-**Infrastructure:**
-- Tests run against Docker Compose Postgres+pgvector (real DB, not mocked)
-- Drive API mocked in sync tests (return canned folder/file listings)
-- ML model calls are real in worker tests (need the model available)
-- `npm test` / `pytest` from `cloud/` directory
-
-**What's NOT tested:**
-- Individual Express route handlers (trust the framework)
-- Frontend components (manual QA)
-- Better Auth flows (trust the library)
-- Google Drive API itself (mocked)
 
 ## Verification
 
-**Local:**
-- `docker-compose up` → Postgres+pgvector + backend running
-- Create test Drive folder with 2 herds, 3 horses, ~10 photos
-- Trigger sync, verify DB populated correctly
-- Run detection + extraction on test photos
-- POST /api/identify with test image, verify correct match
-- Connect WebSocket, verify progress events arrive
-- `npm test` and `pytest` pass
+**Current (manual):**
+- Backend running locally, Lambdas in AWS
+- Trigger sync from Dashboard → verify photos appear in DB
+- Monitor CloudWatch for detect/extract Lambda invocations
+- Browse herds/horses in web UI, verify photo counts
+- Identify a known horse via Identify page
+- Send test SMS, verify response
 
 **Production:**
-- `sam deploy`, verify all Lambdas healthy
-- Run migration, trigger sync
-- Browse herds/horses in web UI
-- Identify a known horse via web UI
-- Send test SMS, verify response
-- Compare top-5 accuracy with current system on standard test set
+- CodeBuild pushes images to ECR and updates Lambdas
+- Run migration via `cloud/backend/src/db/migrate.ts`
+- Trigger sync, verify pipeline runs end-to-end
+- Compare identification accuracy with previous system

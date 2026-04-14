@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { getHerds, getStats, triggerSync, triggerProcessing, getErrorPhotos, type Herd, type Stats, type ErrorPhoto } from '../api/client'
+import { getHerds, getStats, triggerSync, triggerProcessing, getErrorPhotos, retryPhoto, type Herd, type Stats, type ErrorPhoto } from '../api/client'
 
 export default function Dashboard() {
   const [herds, setHerds] = useState<Herd[]>([])
@@ -113,7 +113,7 @@ export default function Dashboard() {
             {stats.syncStatus === 'running' && (
               <span className="flex items-center gap-1.5 text-blue-700 font-medium">
                 <span className="inline-block w-2 h-2 bg-blue-500 rounded-full animate-pulse" />
-                Syncing{stats.syncProgressTotal ? ` (${stats.syncProgressDone}/${stats.syncProgressTotal} horses)` : ''}
+                Syncing{stats.syncFilesScanned ? ` (${stats.syncFilesScanned.toLocaleString()} files scanned)` : ''}
               </span>
             )}
             {(stats.pending > 0 || stats.detecting > 0) && (
@@ -134,6 +134,11 @@ export default function Dashboard() {
             <span className="text-green-700">
               <span className="font-medium">{stats.ready}</span> ready
             </span>
+            {stats.activeWorkers > 0 && (
+              <span className="text-indigo-600">
+                <span className="font-medium">{stats.activeWorkers}</span> {stats.activeWorkers === 1 ? 'worker' : 'workers'}
+              </span>
+            )}
             {stats.error > 0 && (
               <button
                 onClick={async () => {
@@ -173,15 +178,31 @@ export default function Dashboard() {
               <tr className="text-left text-red-700 text-xs">
                 <th className="pb-1 pr-4">Filename</th>
                 <th className="pb-1 pr-4">Horse</th>
-                <th className="pb-1">Herd</th>
+                <th className="pb-1 pr-4">Herd</th>
+                <th className="pb-1"></th>
               </tr>
             </thead>
             <tbody>
               {errorPhotos.map(p => (
                 <tr key={p.id} className="text-red-900">
-                  <td className="py-0.5 pr-4 font-mono text-xs">{p.filename}</td>
+                  <td className="py-0.5 pr-4 font-mono text-xs">
+                    <a href={`https://drive.google.com/file/d/${p.drive_file_id}/view`} target="_blank" rel="noopener noreferrer" className="text-red-700 underline hover:text-red-900">{p.filename}</a>
+                  </td>
                   <td className="py-0.5 pr-4">{p.horse_name}</td>
-                  <td className="py-0.5">{p.herd_name}</td>
+                  <td className="py-0.5 pr-4">{p.herd_name}</td>
+                  <td className="py-0.5">
+                    <button
+                      onClick={async () => {
+                        await retryPhoto(p.id)
+                        setErrorPhotos(prev => prev.filter(ep => ep.id !== p.id))
+                        setStats(prev => prev ? { ...prev, error: prev.error - 1, pending: prev.pending + 1 } : prev)
+                      }}
+                      className="text-red-500 hover:text-red-800 text-xs"
+                      title="Retry"
+                    >
+                      ↻
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>

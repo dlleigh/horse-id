@@ -94,6 +94,16 @@ export const syncRuns = pgTable("sync_runs", {
   filesMoved: integer("files_moved").default(0),
 });
 
+export const lambdaExecutions = pgTable("lambda_executions", {
+  id: text("id").primaryKey(),
+  task: text("task").notNull(),
+  startedAt: timestamp("started_at", { withTimezone: true }).defaultNow().notNull(),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+  status: text("status").default("running").notNull(),
+  batchSize: integer("batch_size").default(0).notNull(),
+  itemsProcessed: integer("items_processed").default(0),
+});
+
 // Relations
 export const herdsRelations = relations(herds, ({ many }) => ({
   horses: many(horses),

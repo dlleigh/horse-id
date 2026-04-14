@@ -27,6 +27,7 @@ COPY horse_detection_lib.py ${LAMBDA_TASK_ROOT}/
 COPY config.yml ${LAMBDA_TASK_ROOT}/
 
 ENV MODEL_CACHE_DIR="/opt/ml/model"
+ENV HF_HUB_OFFLINE="1"
 ENV MATPLOTLIB_CONFIGDIR="/tmp/matplotlib_cache"
 ENV YOLO_AUTOINSTALL="false"
 ENV YOLO_CONFIG_DIR="/tmp/Ultralytics"

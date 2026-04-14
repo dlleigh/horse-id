@@ -8,30 +8,77 @@ import config
 config.init()
 
 
+def _record_start(conn, request_id, task, batch_size):
+    with conn.cursor() as cur:
+        cur.execute(
+            """INSERT INTO lambda_executions (id, task, batch_size)
+               VALUES (%s, %s, %s)
+               ON CONFLICT (id) DO UPDATE SET task = %s, batch_size = %s, started_at = now(), status = 'running', completed_at = NULL""",
+            (request_id, task, batch_size, task, batch_size),
+        )
+
+
+def _record_end(conn, request_id, status, items_processed=0):
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE lambda_executions SET status = %s, completed_at = now(), items_processed = %s WHERE id = %s",
+            (status, items_processed, request_id),
+        )
+
+
 def lambda_handler(event, context):
     task = event.get("task")
+    request_id = getattr(context, "aws_request_id", None) or "local"
 
     if task == "detect":
         from detector import detect_batch
+        from db import get_connection
         photos = event.get("photos", [])
         print(f"Detecting {len(photos)} photos...")
-        result = detect_batch(photos)
+        conn = get_connection()
+        _record_start(conn, request_id, "detect", len(photos))
+        try:
+            result = detect_batch(photos)
+            items = sum(result.values()) if isinstance(result, dict) else len(photos)
+            _record_end(conn, request_id, "completed", items)
+        except Exception:
+            _record_end(conn, request_id, "failed")
+            raise
         return {"status": "ok", "task": "detect", "counts": result}
 
     elif task == "extract":
         from extractor import extract_batch
+        from db import get_connection
         photos = event.get("photos", [])
         print(f"Extracting {len(photos)} photos...")
-        result = extract_batch(photos)
+        conn = get_connection()
+        _record_start(conn, request_id, "extract", len(photos))
+        try:
+            result = extract_batch(photos)
+            items = result.get("extracted", 0) if isinstance(result, dict) else len(photos)
+            _record_end(conn, request_id, "completed", items)
+        except Exception:
+            _record_end(conn, request_id, "failed")
+            raise
         return {"status": "ok", "task": "extract", "counts": result}
 
     elif task == "sync_batch":
         from syncer import sync_batch
+        from db import get_connection
         changes = event.get("changes", [])
         folder_changes = event.get("folder_changes", [])
         sync_run_id = event.get("sync_run_id")
+        batch_size = len(changes) + len(folder_changes)
         print(f"Syncing batch: {len(changes)} files, {len(folder_changes)} folders")
-        result = sync_batch(changes, folder_changes, sync_run_id)
+        conn = get_connection()
+        _record_start(conn, request_id, "sync_batch", batch_size)
+        try:
+            result = sync_batch(changes, folder_changes, sync_run_id)
+            items = sum(result.values()) if isinstance(result, dict) else batch_size
+            _record_end(conn, request_id, "completed", items)
+        except Exception:
+            _record_end(conn, request_id, "failed")
+            raise
         return {"status": "ok", "task": "sync_batch", "counts": result}
 
     elif task == "identify":

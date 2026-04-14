@@ -9,7 +9,7 @@ const router = Router();
 // GET /api/photos/errors — list photos with error status
 router.get("/errors", async (_req, res) => {
   const rows = await db.execute(sql`
-    SELECT p.id, p.filename, p.processing_status, p.detection_result,
+    SELECT p.id, p.filename, p.drive_file_id, p.processing_status, p.detection_result,
            h.name AS horse_name, hd.name AS herd_name
     FROM photos p
     JOIN horses h ON h.id = p.horse_id
@@ -18,6 +18,24 @@ router.get("/errors", async (_req, res) => {
     ORDER BY hd.name, h.name, p.filename
   `);
   res.json(rows.rows);
+});
+
+// POST /api/photos/:id/retry — reset error photo to pending
+router.post("/:id/retry", async (req, res) => {
+  const photoId = Number(req.params.id);
+
+  const [updated] = await db
+    .update(photos)
+    .set({ processingStatus: "pending", detectionResult: null })
+    .where(eq(photos.id, photoId))
+    .returning({ id: photos.id, processingStatus: photos.processingStatus });
+
+  if (!updated) {
+    res.status(404).json({ error: "Photo not found" });
+    return;
+  }
+
+  res.json(updated);
 });
 
 // PATCH /api/photos/:id — toggle exclude/include

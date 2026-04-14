@@ -52,9 +52,11 @@ export interface Stats {
   extracting: number;
   ready: number;
   error: number;
+  activeWorkers: number;
   syncStatus: 'running' | null;
   syncProgressTotal: number | null;
   syncProgressDone: number | null;
+  syncFilesScanned: number | null;
   lastSync: {
     filesScanned: number;
     filesAdded: number;
@@ -124,6 +126,7 @@ export async function getSyncStatus(syncId: number): Promise<SyncRun> {
 export interface ErrorPhoto {
   id: number;
   filename: string;
+  drive_file_id: string;
   processing_status: string;
   detection_result: string | null;
   horse_name: string;
@@ -132,6 +135,10 @@ export interface ErrorPhoto {
 
 export async function getErrorPhotos(): Promise<ErrorPhoto[]> {
   return fetchJson(`${BASE}/photos/errors`);
+}
+
+export async function retryPhoto(photoId: number): Promise<void> {
+  await fetchJson(`${BASE}/photos/${photoId}/retry`, { method: 'POST' });
 }
 
 export async function identify(image: File, herdId?: number, topK?: number): Promise<{ predictions: Prediction[] }> {
