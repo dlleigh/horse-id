@@ -113,7 +113,9 @@ export default function Dashboard() {
             {stats.syncStatus === 'running' && (
               <span className="flex items-center gap-1.5 text-blue-700 font-medium">
                 <span className="inline-block w-2 h-2 bg-blue-500 rounded-full animate-pulse" />
-                Syncing{stats.syncFilesScanned ? ` (${stats.syncFilesScanned.toLocaleString()} files scanned)` : ''}
+                Syncing{stats.syncProgressTotal && stats.syncProgressDone !== null && stats.syncProgressDone < stats.syncProgressTotal
+                  ? ` (${stats.syncProgressDone}/${stats.syncProgressTotal} herds listed${stats.syncFilesScanned ? `, ${stats.syncFilesScanned.toLocaleString()} files found` : ''})`
+                  : stats.syncFilesScanned ? ` (${stats.syncFilesScanned.toLocaleString()} files scanned)` : ''}
               </span>
             )}
             {(stats.pending > 0 || stats.detecting > 0) && (

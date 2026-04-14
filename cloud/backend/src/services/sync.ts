@@ -168,10 +168,16 @@ async function runFullScanAsChanges(syncRunId: number): Promise<void> {
     console.log("[sync] Full scan: listing Drive folders...");
     const herdFolders = await listFolders(rootFolderId);
 
+    await db
+      .update(syncRuns)
+      .set({ herdsTotal: herdFolders.length, lastHeartbeat: new Date() })
+      .where(eq(syncRuns.id, syncRunId));
+
     // Build folder changes: herds first, then horses (order matters for _upsert_folder)
     const folderChanges: object[] = [];
     const allFileChanges: object[] = [];
     let totalFiles = 0;
+    let herdsScanned = 0;
 
     for (const herd of herdFolders) {
       folderChanges.push({
@@ -203,16 +209,21 @@ async function runFullScanAsChanges(syncRunId: number): Promise<void> {
         }
         totalFiles += imageFiles.length;
       }
+
+      herdsScanned++;
+      await db
+        .update(syncRuns)
+        .set({
+          herdsScanned,
+          filesScanned: totalFiles,
+          lastHeartbeat: new Date(),
+        })
+        .where(eq(syncRuns.id, syncRunId));
     }
 
     console.log(
       `[sync] Full scan: ${folderChanges.length} folders, ${totalFiles} files`
     );
-
-    await db
-      .update(syncRuns)
-      .set({ herdsTotal: totalFiles, lastHeartbeat: new Date() })
-      .where(eq(syncRuns.id, syncRunId));
 
     // First batch: all folder changes (no files) so DB hierarchy is created
     const batches: { changes: object[]; folder_changes: object[] }[] = [
