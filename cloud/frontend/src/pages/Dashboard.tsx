@@ -50,10 +50,10 @@ export default function Dashboard() {
     }
   }, [stats])
 
-  async function handleSync() {
+  async function handleSync(mode?: 'full' | 'incremental') {
     setError('')
     try {
-      await triggerSync()
+      await triggerSync(mode)
       const s = await getStats()
       setStats(s)
     } catch (e: any) {
@@ -98,11 +98,18 @@ export default function Dashboard() {
             </button>
           )}
           <button
-            onClick={handleSync}
+            onClick={() => handleSync()}
             disabled={isBusy}
             className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {stats?.syncStatus === 'running' ? 'Syncing...' : isProcessing ? 'Processing...' : 'Sync from Drive'}
+            {stats?.syncStatus === 'running' ? 'Syncing...' : isProcessing ? 'Processing...' : 'Sync'}
+          </button>
+          <button
+            onClick={() => handleSync('full')}
+            disabled={isBusy}
+            className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+          >
+            Full Sync
           </button>
         </div>
       </div>

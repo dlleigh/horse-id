@@ -2,20 +2,24 @@ import { Router } from "express";
 import { eq } from "drizzle-orm";
 import { db } from "../db/client.js";
 import { syncRuns } from "../db/schema.js";
-import { runIncrementalSync } from "../services/sync.js";
+import { runIncrementalSync, runFullScanAsChanges } from "../services/sync.js";
 
 const router = Router();
 
 // POST /api/sync — create sync run row, kick off work in background
-router.post("/", async (_req, res) => {
+// Optional body: { mode: "full" | "incremental" }
+router.post("/", async (req, res) => {
   try {
+    const mode = req.body?.mode === "full" ? "full" : "incremental";
+
     const [syncRun] = await db
       .insert(syncRuns)
       .values({ status: "running" })
       .returning({ id: syncRuns.id });
 
     // Fire and forget — frontend polls GET /api/sync/:id
-    runIncrementalSync(syncRun.id).catch(err => {
+    const syncFn = mode === "full" ? runFullScanAsChanges : runIncrementalSync;
+    syncFn(syncRun.id).catch(err => {
       console.error("Sync failed:", err);
     });
 

@@ -158,7 +158,7 @@ function toPayload(change: DriveChange): object {
  * as sync_batch tasks to Lambda (same path as incremental sync).
  * Used when no Changes API token exists (first sync).
  */
-async function runFullScanAsChanges(syncRunId: number): Promise<void> {
+export async function runFullScanAsChanges(syncRunId: number): Promise<void> {
   const config = getConfig();
   const rootFolderId = config.googleDriveDirectoryId;
 

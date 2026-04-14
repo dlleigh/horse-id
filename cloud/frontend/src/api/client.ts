@@ -111,8 +111,12 @@ export async function getStats(): Promise<Stats> {
   return fetchJson(`${BASE}/stats`);
 }
 
-export async function triggerSync(): Promise<{ syncRunId: number }> {
-  return fetchJson(`${BASE}/sync`, { method: 'POST' });
+export async function triggerSync(mode?: 'full' | 'incremental'): Promise<{ syncRunId: number }> {
+  return fetchJson(`${BASE}/sync`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mode: mode ?? 'incremental' }),
+  });
 }
 
 export async function triggerProcessing(): Promise<{ status: string }> {
