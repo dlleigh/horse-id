@@ -225,6 +225,12 @@ export async function runFullScanAsChanges(syncRunId: number): Promise<void> {
       `[sync] Full scan: ${folderChanges.length} folders, ${totalFiles} files`
     );
 
+    // Reset filesScanned before dispatching — Lambda sync_batch will increment from 0
+    await db
+      .update(syncRuns)
+      .set({ filesScanned: 0, lastHeartbeat: new Date() })
+      .where(eq(syncRuns.id, syncRunId));
+
     // First batch: all folder changes (no files) so DB hierarchy is created
     const batches: { changes: object[]; folder_changes: object[] }[] = [
       { changes: [], folder_changes: folderChanges },
