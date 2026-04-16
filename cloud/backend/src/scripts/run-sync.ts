@@ -1,9 +1,13 @@
 import "../env.js";
-import { runSync } from "../services/sync.js";
+import { runIncrementalSync } from "../services/sync.js";
+import { db } from "../db/client.js";
+import { syncRuns } from "../db/schema.js";
 
 async function main() {
   console.log("Starting sync...");
-  const { syncRunId } = await runSync();
+  const [syncRun] = await db.insert(syncRuns).values({ status: "running" }).returning({ id: syncRuns.id });
+  await runIncrementalSync(syncRun.id);
+  const syncRunId = syncRun.id;
   console.log(`Sync run ${syncRunId} finished`);
 }
 

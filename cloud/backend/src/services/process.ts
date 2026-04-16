@@ -51,7 +51,7 @@ export async function fanOutProcessing(
       ORDER BY p.id
       LIMIT 10000
     `);
-    rows = result.rows as PhotoRow[];
+    rows = result.rows as unknown as PhotoRow[];
   } else {
     const result = await db.execute(sql`
       SELECT p.id, p.horse_id, p.drive_file_id, p.filename
@@ -62,7 +62,7 @@ export async function fanOutProcessing(
       ORDER BY p.id
       LIMIT 10000
     `);
-    rows = result.rows as PhotoRow[];
+    rows = result.rows as unknown as PhotoRow[];
   }
 
   if (rows.length === 0) {
