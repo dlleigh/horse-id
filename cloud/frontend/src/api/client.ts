@@ -1,3 +1,5 @@
+import { getJWTToken } from '../lib/auth';
+
 const BASE = '/api';
 
 export interface Herd {
@@ -74,7 +76,12 @@ export interface Prediction {
 }
 
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, init);
+  const token = await getJWTToken();
+  const headers = new Headers(init?.headers);
+  if (token) {
+    headers.set('Authorization', `Bearer ${token}`);
+  }
+  const res = await fetch(url, { ...init, headers });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(body.error || `HTTP ${res.status}`);
