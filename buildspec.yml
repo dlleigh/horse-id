@@ -22,7 +22,7 @@ env:
 
     # Frontend deployment
     FRONTEND_S3_BUCKET: "horse-id-frontend"
-    CLOUDFRONT_DISTRIBUTION_ID: "PLACEHOLDER"
+    CLOUDFRONT_DISTRIBUTION_ID: "E1PFBLXPVLU0BG"
     VITE_NEON_AUTH_URL: "https://ep-shiny-shape-aj0git9l.neonauth.c-3.us-east-2.aws.neon.tech/neondb/auth"
 
 phases:
