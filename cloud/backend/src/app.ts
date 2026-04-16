@@ -26,9 +26,11 @@ app.use("/api/identify", requireAuth, identifyRouter);
 app.use("/api/stats", requireAuth, statsRouter);
 app.use("/api/process", requireAuth, processRouter);
 
-const port = process.env.PORT ?? 3000;
-app.listen(port, () => {
-  console.log(`Backend listening on port ${port}`);
-});
+if (!process.env.AWS_LAMBDA_FUNCTION_NAME) {
+  const port = process.env.PORT ?? 3000;
+  app.listen(port, () => {
+    console.log(`Backend listening on port ${port}`);
+  });
+}
 
 export default app;

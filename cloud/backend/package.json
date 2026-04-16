@@ -12,6 +12,7 @@
   "dependencies": {
     "@aws-sdk/client-lambda": "^3.1026.0",
     "@aws-sdk/client-s3": "^3.1024.0",
+    "@codegenie/serverless-express": "^4.17.1",
     "@neondatabase/serverless": "^0.10.0",
     "@types/cors": "^2.8.19",
     "cors": "^2.8.6",

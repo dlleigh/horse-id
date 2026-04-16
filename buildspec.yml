@@ -17,6 +17,13 @@ env:
     # Lambda function names to update after push
     RESPONDER_LAMBDA_NAME: "twilio-webhook-responder"
     ML_WORKER_LAMBDA_NAME: "horse-id-ml-worker"
+    BACKEND_LAMBDA_NAME: "horse-id-backend"
+    BACKEND_IMAGE_TAG: "backend-latest"
+
+    # Frontend deployment
+    FRONTEND_S3_BUCKET: "horse-id-frontend"
+    CLOUDFRONT_DISTRIBUTION_ID: "PLACEHOLDER"
+    VITE_NEON_AUTH_URL: "https://ep-shiny-shape-aj0git9l.neonauth.c-3.us-east-2.aws.neon.tech/neondb/auth"
 
 phases:
   pre_build:
@@ -40,18 +47,33 @@ phases:
       - docker build --platform linux/amd64 --file cloud/workers/Dockerfile -t $ECR_REPOSITORY_NAME:$ML_WORKER_IMAGE_TAG .
       - docker tag $ECR_REPOSITORY_NAME:$ML_WORKER_IMAGE_TAG $REPOSITORY_URI:$ML_WORKER_IMAGE_TAG
 
+      - echo "Building the backend API Docker image..."
+      - docker build --platform linux/amd64 --file cloud/backend/Dockerfile -t $ECR_REPOSITORY_NAME:$BACKEND_IMAGE_TAG cloud/backend
+      - docker tag $ECR_REPOSITORY_NAME:$BACKEND_IMAGE_TAG $REPOSITORY_URI:$BACKEND_IMAGE_TAG
+
+      - echo "Building frontend..."
+      - cd cloud/frontend && npm ci && VITE_NEON_AUTH_URL=$VITE_NEON_AUTH_URL npm run build && cd ../..
+
   post_build:
     commands:
       - echo "Build completed on $(date)"
       - echo "Pushing Docker images to ECR..."
       - docker push $REPOSITORY_URI:$RESPONDER_IMAGE_TAG
       - docker push $REPOSITORY_URI:$ML_WORKER_IMAGE_TAG
+      - docker push $REPOSITORY_URI:$BACKEND_IMAGE_TAG
 
       # Update Lambda functions to use the new images
       - echo "Updating Lambda functions..."
       - aws lambda update-function-code --function-name $RESPONDER_LAMBDA_NAME --image-uri $REPOSITORY_URI:$RESPONDER_IMAGE_TAG --region $AWS_DEFAULT_REGION
       - aws lambda update-function-code --function-name $ML_WORKER_LAMBDA_NAME --image-uri $REPOSITORY_URI:$ML_WORKER_IMAGE_TAG --region $AWS_DEFAULT_REGION
+      - aws lambda update-function-code --function-name $BACKEND_LAMBDA_NAME --image-uri $REPOSITORY_URI:$BACKEND_IMAGE_TAG --region $AWS_DEFAULT_REGION
       - echo "Lambda functions updated."
+
+      # Deploy frontend to S3 and invalidate CloudFront cache
+      - echo "Deploying frontend to S3..."
+      - aws s3 sync cloud/frontend/dist/ s3://$FRONTEND_S3_BUCKET --delete
+      - aws cloudfront create-invalidation --distribution-id $CLOUDFRONT_DISTRIBUTION_ID --paths "/*"
+      - echo "Frontend deployed."
 
 artifacts:
   files: []
