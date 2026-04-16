@@ -26,3 +26,6 @@ config.local.yml
 test-results/
 .pytest_cache/
 htmlcov/
+
+# TypeScript build output
+cloud/backend/dist/
