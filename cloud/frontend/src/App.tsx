@@ -8,7 +8,8 @@ import Identify from './pages/Identify'
 import Login from './pages/Login'
 
 export default function App() {
-  const session = authClient.useSession()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const session = (authClient as any).useSession()
 
   if (session.isPending) {
     return <div className="min-h-screen bg-gray-50 flex items-center justify-center">

@@ -8,4 +8,4 @@ const neonAuth = createInternalNeonAuth(NEON_AUTH_URL, {
 });
 
 export const authClient = neonAuth.adapter;
-export const getJWTToken = () => neonAuth.getJWTToken(false);
+export const getJWTToken = () => neonAuth.getJWTToken();
