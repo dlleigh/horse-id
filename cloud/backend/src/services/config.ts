@@ -1,7 +1,52 @@
+import { SSMClient, GetParametersCommand } from "@aws-sdk/client-ssm";
+
 export interface Config {
   databaseUrl: string;
   googleDriveDirectoryId: string;
   googleDriveServiceAccountKey: object;
+}
+
+let _config: Config | null = null;
+
+/**
+ * Load secrets from SSM Parameter Store into process.env.
+ * Called once at startup in Lambda; locally env vars come from .env.
+ */
+const SSM_PARAM_MAP: Record<string, string> = {
+  "/horse-id/database-url": "DATABASE_URL",
+  "/horse-id/drive-service-account-key": "GOOGLE_DRIVE_SERVICE_ACCOUNT_KEY",
+};
+
+async function loadFromSSM(): Promise<void> {
+  // Only fetch params that aren't already set as env vars
+  const needed = Object.entries(SSM_PARAM_MAP).filter(
+    ([, envVar]) => !process.env[envVar]
+  );
+  if (needed.length === 0) return;
+
+  const ssm = new SSMClient();
+  const res = await ssm.send(
+    new GetParametersCommand({
+      Names: needed.map(([name]) => name),
+      WithDecryption: true,
+    })
+  );
+
+  for (const param of res.Parameters ?? []) {
+    const envVar = SSM_PARAM_MAP[param.Name!];
+    if (envVar && param.Value) {
+      process.env[envVar] = param.Value;
+    }
+  }
+}
+
+let _ssmLoaded = false;
+
+export async function ensureConfig(): Promise<void> {
+  if (!_ssmLoaded) {
+    await loadFromSSM();
+    _ssmLoaded = true;
+  }
 }
 
 function requireEnv(name: string): string {
@@ -11,8 +56,6 @@ function requireEnv(name: string): string {
   }
   return value;
 }
-
-let _config: Config | null = null;
 
 export function getConfig(): Config {
   if (_config) return _config;
