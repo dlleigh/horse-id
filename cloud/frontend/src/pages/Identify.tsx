@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { getHerds, identify, photoImageUrl, type Herd, type Prediction } from '../api/client'
+import AuthImage from '../components/AuthImage'
 
 export default function Identify() {
   const [herds, setHerds] = useState<Herd[]>([])
@@ -126,7 +127,7 @@ export default function Identify() {
                 className="flex items-center gap-4 p-3 bg-white rounded-lg border border-gray-200 hover:border-blue-300 transition-all"
               >
                 <div className="w-16 h-16 rounded bg-gray-100 overflow-hidden flex-shrink-0">
-                  <img
+                  <AuthImage
                     src={photoImageUrl(p.reference_photo_id)}
                     alt=""
                     className="w-full h-full object-cover"

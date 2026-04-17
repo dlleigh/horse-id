@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { getHerdHorses, getHerds, photoImageUrl, type HorseInHerd, type Herd } from '../api/client'
+import AuthImage from '../components/AuthImage'
 
 export default function HerdDetail() {
   const { id } = useParams<{ id: string }>()
@@ -39,7 +40,7 @@ export default function HerdDetail() {
           >
             <div className="aspect-square bg-gray-100">
               {horse.thumbnailPhotoId ? (
-                <img
+                <AuthImage
                   src={photoImageUrl(horse.thumbnailPhotoId, 'thumb')}
                   alt=""
                   loading="lazy"

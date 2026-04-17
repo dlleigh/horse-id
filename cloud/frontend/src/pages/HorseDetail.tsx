@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { getHorse, patchPhoto, photoImageUrl, type HorseDetail as HorseDetailType } from '../api/client'
+import AuthImage from '../components/AuthImage'
 
 const STATUS_STYLES: Record<string, string> = {
   pending: 'bg-gray-100 text-gray-600',
@@ -86,7 +87,7 @@ export default function HorseDetail() {
               className="aspect-square bg-gray-100 cursor-pointer"
               onClick={() => setLightboxPhotoId(photo.id)}
             >
-              <img
+              <AuthImage
                 src={photoImageUrl(photo.id, 'thumb')}
                 alt={photo.filename}
                 loading="lazy"
@@ -119,7 +120,7 @@ export default function HorseDetail() {
           className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center"
           onClick={() => setLightboxPhotoId(null)}
         >
-          <img
+          <AuthImage
             src={photoImageUrl(lightboxPhotoId)}
             alt=""
             className="max-w-[90vw] max-h-[90vh] object-contain"

@@ -14,6 +14,14 @@ const app = express();
 app.use(cors({ origin: true, credentials: true }));
 app.use(express.json());
 
+// Allow ?token=<jwt> query param for endpoints that can't send headers (e.g. <img src>)
+app.use((req, _res, next) => {
+  if (!req.headers.authorization && typeof req.query.token === "string") {
+    req.headers.authorization = `Bearer ${req.query.token}`;
+  }
+  next();
+});
+
 app.get("/health", (_req, res) => {
   res.json({ status: "ok" });
 });
