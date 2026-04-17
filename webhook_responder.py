@@ -9,6 +9,16 @@ from twilio.request_validator import RequestValidator
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
+# Load TWILIO_AUTH_TOKEN from SSM if not already set as an env var
+if os.environ.get("AWS_LAMBDA_FUNCTION_NAME") and not os.environ.get("TWILIO_AUTH_TOKEN"):
+    try:
+        _ssm = boto3.client("ssm", region_name=os.environ.get("AWS_DEFAULT_REGION", "us-east-2"))
+        _resp = _ssm.get_parameter(Name="/horse-id/twilio-auth-token", WithDecryption=True)
+        os.environ["TWILIO_AUTH_TOKEN"] = _resp["Parameter"]["Value"]
+        logger.info("Loaded TWILIO_AUTH_TOKEN from SSM Parameter Store")
+    except Exception as e:
+        logger.error(f"Failed to load TWILIO_AUTH_TOKEN from SSM: {e}")
+
 def parse_herd_from_text(text):
     """
     Extract herd name from user's text message.
