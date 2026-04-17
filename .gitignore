@@ -11,7 +11,7 @@ token.json
 *.jpg
 sandbox
 *.pt
-*.html
+coverage-html
 *.csv
 __pycache__
 horse-id-data
