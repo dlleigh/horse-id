@@ -179,46 +179,58 @@ export async function runFullScanAsChanges(syncRunId: number): Promise<void> {
     let totalFiles = 0;
     let herdsScanned = 0;
 
-    for (const herd of herdFolders) {
-      folderChanges.push({
-        folder_id: herd.id,
-        name: herd.name,
-        parent_id: rootFolderId,
-        removed: false,
-      });
+    // Process herds in parallel (bounded concurrency to avoid Drive rate limits)
+    const HERD_CONCURRENCY = 5;
+    for (let h = 0; h < herdFolders.length; h += HERD_CONCURRENCY) {
+      const herdBatch = herdFolders.slice(h, h + HERD_CONCURRENCY);
 
-      const horseFolders = await listFolders(herd.id);
-      for (const horse of horseFolders) {
-        folderChanges.push({
-          folder_id: horse.id,
-          name: horse.name,
-          parent_id: herd.id,
-          removed: false,
-        });
-
-        const imageFiles = await listImageFiles(horse.id);
-        for (const file of imageFiles) {
-          allFileChanges.push({
-            file_id: file.id,
-            name: file.name,
-            parent_id: horse.id,
-            md5: file.md5Checksum,
-            mime_type: "image/jpeg",
+      await Promise.all(
+        herdBatch.map(async (herd) => {
+          folderChanges.push({
+            folder_id: herd.id,
+            name: herd.name,
+            parent_id: rootFolderId,
             removed: false,
           });
-        }
-        totalFiles += imageFiles.length;
-      }
 
-      herdsScanned++;
-      await db
-        .update(syncRuns)
-        .set({
-          herdsScanned,
-          filesScanned: totalFiles,
-          lastHeartbeat: new Date(),
+          const horseFolders = await listFolders(herd.id);
+
+          // List all horse image files in parallel within this herd
+          await Promise.all(
+            horseFolders.map(async (horse) => {
+              folderChanges.push({
+                folder_id: horse.id,
+                name: horse.name,
+                parent_id: herd.id,
+                removed: false,
+              });
+
+              const imageFiles = await listImageFiles(horse.id);
+              for (const file of imageFiles) {
+                allFileChanges.push({
+                  file_id: file.id,
+                  name: file.name,
+                  parent_id: horse.id,
+                  md5: file.md5Checksum,
+                  mime_type: "image/jpeg",
+                  removed: false,
+                });
+              }
+              totalFiles += imageFiles.length;
+            })
+          );
+
+          herdsScanned += 1;
+          await db
+            .update(syncRuns)
+            .set({
+              herdsScanned,
+              filesScanned: totalFiles,
+              lastHeartbeat: new Date(),
+            })
+            .where(eq(syncRuns.id, syncRunId));
         })
-        .where(eq(syncRuns.id, syncRunId));
+      );
     }
 
     console.log(
