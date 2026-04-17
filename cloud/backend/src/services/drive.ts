@@ -1,4 +1,5 @@
-import { google, type drive_v3 } from "googleapis";
+import { drive_v3, drive } from "@googleapis/drive";
+import { GoogleAuth } from "google-auth-library";
 import { getConfig } from "./config.js";
 
 let _drive: drive_v3.Drive | null = null;
@@ -7,12 +8,12 @@ export function getDriveClient(): drive_v3.Drive {
   if (_drive) return _drive;
 
   const config = getConfig();
-  const auth = new google.auth.GoogleAuth({
+  const auth = new GoogleAuth({
     credentials: config.googleDriveServiceAccountKey as object,
     scopes: ["https://www.googleapis.com/auth/drive.readonly"],
   });
 
-  _drive = google.drive({ version: "v3", auth });
+  _drive = drive({ version: "v3", auth });
   return _drive;
 }
 
