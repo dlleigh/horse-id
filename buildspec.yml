@@ -26,6 +26,9 @@ env:
     VITE_NEON_AUTH_URL: "https://ep-shiny-shape-aj0git9l.neonauth.c-3.us-east-2.aws.neon.tech/neondb/auth"
 
 phases:
+  install:
+    runtime-versions:
+      nodejs: 22
   pre_build:
     commands:
       # Log in to Amazon ECR
@@ -55,6 +58,7 @@ phases:
       - cd cloud/frontend && npm ci && VITE_NEON_AUTH_URL=$VITE_NEON_AUTH_URL npm run build && cd ../..
 
   post_build:
+    on-failure: ABORT
     commands:
       - echo "Build completed on $(date)"
       - echo "Pushing Docker images to ECR..."
