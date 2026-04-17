@@ -16,7 +16,9 @@ export default function Layout() {
           </Link>
           <div className="flex items-center gap-4">
             <Link to="/" className="text-gray-600 hover:text-gray-900">Herds</Link>
-            <Link to="/identify" className="text-gray-600 hover:text-gray-900">Identify</Link>
+            {import.meta.env.DEV && (
+              <Link to="/identify" className="text-gray-600 hover:text-gray-900">Identify</Link>
+            )}
             <button
               onClick={handleSignOut}
               className="text-gray-400 hover:text-gray-600 text-sm"

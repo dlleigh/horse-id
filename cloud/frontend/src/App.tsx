@@ -27,7 +27,7 @@ export default function App() {
         <Route path="/" element={<Dashboard />} />
         <Route path="/herds/:id" element={<HerdDetail />} />
         <Route path="/horses/:id" element={<HorseDetail />} />
-        <Route path="/identify" element={<Identify />} />
+        {import.meta.env.DEV && <Route path="/identify" element={<Identify />} />}
       </Route>
     </Routes>
   )
