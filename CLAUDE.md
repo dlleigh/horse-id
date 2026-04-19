@@ -4,106 +4,97 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a Horse Identity Matching System that identifies individual horses based on photos. The system ingests horse photos from local directories, detects horses, merges photos of the same horse from different sources, and provides SMS/MMS identification via Twilio.
+Horse Identity Matching System — identifies individual horses from photos using computer vision. Photos are sourced from Google Drive, processed by AWS Lambda ML workers (YOLO detection + Wildlife-mega-L-384 embeddings), stored in Neon Postgres with pgvector, and served via a React SPA. SMS/MMS identification is handled via Twilio.
+
+## Project Structure
+
+```
+├── cloud/
+│   ├── frontend/          # React + Vite + TypeScript SPA
+│   ├── backend/           # Node.js + Express API server (Drizzle ORM)
+│   ├── workers/           # Python ML Lambda (detect, extract, identify, sync_batch)
+│   ├── db/migrations/     # Postgres migration SQL files
+│   └── scripts/           # One-time migration scripts
+├── webhook_responder.py   # Twilio SMS Lambda handler
+├── Dockerfile.responder   # SMS responder container image
+├── horse_detection_lib.py # Detection logic (shared with ML worker)
+├── config_utils.py        # Config loader (used by horse_detection_lib)
+├── config.yml             # Detection thresholds (copied into ML worker image)
+├── buildspec.yml          # CodeBuild CI/CD pipeline
+├── responder-requirements.txt
+└── legacy/                # Old CLI/CSV pipeline (moved here for reference)
+```
 
 ## Key Commands
 
-### Core Processing Pipeline
+### Backend Development
 ```bash
-# 1. Ingest photos from local directories
-python ingest_from_dir.py
-
-# 2. Normalize horse names against master list (with CLI interaction)
-python normalize_horse_names.py
-
-# 3. Detect number of horses in each photo
-python multi_horse_detector.py
-
-# 4. Merge identities of horses with same name
-python merge_horse_identities.py
-
-# 5. Review merge decisions interactively
-streamlit run review_merges_app.py
-
-# 6. Generate HTML galleries for visual review
-python generate_gallery.py
-
-# 7. Extract features for similarity matching
-python extract_features.py
-
-# 8. Upload data to S3
-python upload_to_s3.py
+cd cloud/backend && npm run dev     # Start Express API server
+cd cloud/backend && npx tsx src/db/migrate.ts  # Run DB migrations
 ```
 
-### Testing and Development
+### Frontend Development
 ```bash
-# Test Lambda functions locally
-streamlit run test_lambda_app.py
-
-# Run Jupyter notebook for calibration and testing
-jupyter notebook horse_id_ensemble.ipynb
+cd cloud/frontend && npm run dev    # Start Vite dev server
+cd cloud/frontend && npm run build  # Production build
 ```
 
-### Docker Deployment
+### Docker Images
 ```bash
-# Build processor image
-docker build --platform linux/amd64 -f Dockerfile.horse_id -t horse-id-processor .
+# ML worker (Lambda container)
+docker build --platform linux/amd64 -f cloud/workers/Dockerfile -t horse-id-ml-worker .
 
-# Build responder image
+# Twilio webhook responder (Lambda container)
 docker build --platform linux/amd64 -f Dockerfile.responder -t horse-id-responder .
 ```
 
-## System Architecture
+### Deployment
+CodeBuild runs automatically from `buildspec.yml`: builds both Docker images, pushes to ECR, and updates Lambda functions.
 
-### Data Flow Pipeline
-1. **Directory Ingestion** (`ingest_from_dir.py`) - Ingests photos from local directories (one subdirectory per horse)
-2. **Name Normalization** (`normalize_horse_names.py`) - Normalizes horse names against master list with CLI interaction for uncertain matches
-3. **Multi-Horse Detection** (`multi_horse_detector.py`) - Uses YOLO to classify images as NONE/SINGLE/MULTIPLE horses
-4. **Identity Merging** (`merge_horse_identities.py`) - Uses Wildlife-mega-L-384 similarity to merge photos of same horse based on normalized names
-5. **Merge Review** (`review_merges_app.py`) - Interactive web app for correcting merge decisions
-6. **Feature Extraction** (`extract_features.py`) - Pre-extracts features using Wildlife-mega-L-384 model
-7. **AWS Lambda Deployment** - Two-function architecture for real-time horse identification
+## Architecture
+
+### Event-Driven Pipeline
+```
+Sync button → Backend calls Drive Changes API → batches → ml-worker (sync_batch)
+  → ml-worker (detect) → ml-worker (extract) → photo "ready" in pgvector
+```
+
+Each Lambda invocation chains to the next. No orchestrator needed.
+
+### Lambda Functions
+| Function | Runtime | Purpose |
+|----------|---------|---------|
+| **horse-id-ml-worker** | Python | Detection, extraction, identification, sync batches |
+| **twilio-webhook-responder** | Python | Receives Twilio webhooks, invokes ml-worker for ID |
 
 ### Key Technologies
-- **WildlifeTools Framework** - Core similarity matching and feature extraction
-- **YOLOv5** - Multi-horse detection
-- **Streamlit** - Web interfaces for review and testing
-- **AWS Lambda** - Production deployment with dual-function architecture
-- **Twilio** - SMS/MMS interface
+- **Wildlife-mega-L-384** — feature extraction for horse re-identification
+- **YOLO** — multi-horse detection (NONE/SINGLE/MULTIPLE classification)
+- **Neon Postgres + pgvector** — database with vector similarity search
+- **Google Drive** — photo source of truth (Changes API for incremental sync)
+- **Drizzle ORM** — TypeScript-native database access
+- **Twilio** — SMS/MMS interface
 
-### CSV Data Files
-- `manifest_file` - Initial photos from directory ingestion
-- `normalized_manifest_file` - After horse name normalization with CLI interaction
-- `detected_manifest_file` - After horse detection analysis
-- `merged_manifest_file` - Final merged identities based on normalized names
-- `merge_results_file` - Log of similarity comparisons
-- `approved_horse_normalizations.json` - Approved name mapping decisions
-
-### Lambda Architecture
-- **webhook-responder** - Receives Twilio webhooks, returns immediate response
-- **horse-id-processor** - Performs actual horse identification asynchronously
+### Recovery
+`POST /api/process` resets stuck photos (>15 min in detecting/extracting) and fans out pending work to Lambda.
 
 ## Configuration
 
-- `config.yml` - Central configuration for all paths, thresholds, and settings
-- Requires AWS CLI configured with appropriate permissions for S3 and Lambda
-- Environment variables needed for Lambda: `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `PROCESSOR_LAMBDA_NAME`
+- `config.yml` — detection thresholds, YOLO model config
+- `cloud/backend/.env` — DATABASE_URL, Google Drive service account, AWS config
+- Lambda env vars: `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `PROCESSOR_LAMBDA_NAME`
+- Secrets stored in AWS SSM Parameter Store
 
 ## Development Notes
 
-- The system uses a specific workflow order - directory ingestion → name normalization → detection → merging, etc.
-- **Name normalization step** addresses "horse name drift" where email names vary slightly from master list (e.g., 'Goodwill' vs 'Good Will')
-- Normalization requires CLI interaction for uncertain matches but saves decisions for future consistency
-- Calibration files (`.pkl`) are required for similarity matching and are created by the Jupyter notebook
-- The system is designed to handle incremental processing - scripts can be re-run to process new data
-- All file paths use `{data_root}` placeholder pattern for environment-agnostic configuration
-
-## Data Integrity Rules
-
-- This is a critical data integrity rule for the system: All images with the same canonical_id MUST have the same normalized_horse_name.
+- Backend runs as standalone Express server (not behind API Gateway)
+- Frontend uses 2-second HTTP polling for live updates (WebSocket not implemented)
+- No auth yet (Better Auth deferred)
+- `horse_detection_lib.py` and `config.yml` live at project root because they're COPY'd into the ML worker Docker image at build time
 
 ### Before Running Python Commands
 
 ```bash
 # ALWAYS activate venv first
 source venv/bin/activate
+```
