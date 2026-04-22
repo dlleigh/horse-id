@@ -19,6 +19,7 @@ export default function Layout() {
             {import.meta.env.DEV && (
               <Link to="/identify" className="text-gray-600 hover:text-gray-900">Identify</Link>
             )}
+            <Link to="/settings" className="text-gray-600 hover:text-gray-900">Settings</Link>
             <button
               onClick={handleSignOut}
               className="text-gray-400 hover:text-gray-600 text-sm"

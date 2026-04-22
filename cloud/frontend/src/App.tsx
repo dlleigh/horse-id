@@ -5,6 +5,7 @@ import Dashboard from './pages/Dashboard'
 import HerdDetail from './pages/HerdDetail'
 import HorseDetail from './pages/HorseDetail'
 import Identify from './pages/Identify'
+import Settings from './pages/Settings'
 import Login from './pages/Login'
 
 export default function App() {
@@ -28,6 +29,7 @@ export default function App() {
         <Route path="/herds/:id" element={<HerdDetail />} />
         <Route path="/horses/:id" element={<HorseDetail />} />
         {import.meta.env.DEV && <Route path="/identify" element={<Identify />} />}
+        <Route path="/settings" element={<Settings />} />
       </Route>
     </Routes>
   )
