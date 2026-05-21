@@ -1,5 +1,6 @@
 """Sync batch handler — processes Drive changes and chains to detection."""
 
+import json
 from db import get_connection
 from lambda_utils import invoke_detection
 
@@ -20,16 +21,24 @@ def sync_batch(changes: list[dict], folder_changes: list[dict], sync_run_id: int
     conn = get_connection()
     counts = {"folders_added": 0, "folders_removed": 0, "files_added": 0,
               "files_updated": 0, "files_removed": 0}
+    warnings = []
     new_photo_rows = []
 
     # 1. Process folder changes (herds and horses)
     for fc in folder_changes:
-        if fc.get("removed"):
-            _remove_folder(conn, fc["folder_id"])
-            counts["folders_removed"] += 1
-        else:
-            _upsert_folder(conn, fc["folder_id"], fc["name"], fc.get("parent_id"))
-            counts["folders_added"] += 1
+        try:
+            if fc.get("removed"):
+                _remove_folder(conn, fc["folder_id"])
+                counts["folders_removed"] += 1
+            else:
+                _upsert_folder(conn, fc["folder_id"], fc["name"], fc.get("parent_id"))
+                counts["folders_added"] += 1
+        except Exception as e:
+            msg = f"Failed to sync folder '{fc.get('name', fc.get('folder_id'))}': {e}"
+            if "horses_herd_id_name_key" in str(e):
+                msg = f"Skipped move for '{fc.get('name')}': a horse with that name already exists in the target herd"
+            print(f"  [WARN] {msg}")
+            warnings.append(msg)
 
     # 2. Process file changes (photos)
     for change in changes:
@@ -61,6 +70,16 @@ def sync_batch(changes: list[dict], folder_changes: list[dict], sync_run_id: int
                 WHERE id = %s""",
                 (len(changes), counts["files_added"], counts["files_removed"], sync_run_id),
             )
+            if warnings:
+                cur.execute(
+                    """UPDATE sync_runs SET
+                        warnings = CASE
+                            WHEN warnings IS NULL THEN %s
+                            ELSE warnings::jsonb || %s::jsonb
+                        END
+                    WHERE id = %s""",
+                    (json.dumps(warnings), json.dumps(warnings), sync_run_id),
+                )
 
     # 4. Chain to detection
     if new_photo_rows:

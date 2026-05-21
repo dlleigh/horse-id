@@ -92,6 +92,7 @@ export const syncRuns = pgTable("sync_runs", {
   filesAdded: integer("files_added").default(0),
   filesRemoved: integer("files_removed").default(0),
   filesMoved: integer("files_moved").default(0),
+  warnings: text("warnings"),
 });
 
 export const lambdaExecutions = pgTable("lambda_executions", {

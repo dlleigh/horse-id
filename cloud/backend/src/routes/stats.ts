@@ -20,7 +20,7 @@ router.get("/", async (_req, res) => {
     `),
     db.execute(sql`
       SELECT id, status, herds_total, herds_scanned, last_heartbeat,
-             files_scanned, files_added, files_removed, files_moved, completed_at
+             files_scanned, files_added, files_removed, files_moved, completed_at, warnings
       FROM sync_runs ORDER BY id DESC LIMIT 1
     `),
     db.execute(sql`
@@ -42,6 +42,7 @@ router.get("/", async (_req, res) => {
     files_removed: number;
     files_moved: number;
     completed_at: string | null;
+    warnings: string | null;
   } | undefined;
 
   // Consider a sync alive only if heartbeat is within the last 5 minutes
@@ -50,11 +51,17 @@ router.get("/", async (_req, res) => {
     sync.last_heartbeat &&
     Date.now() - new Date(sync.last_heartbeat).getTime() < 300_000;
 
+  let syncWarnings: string[] = [];
+  if (sync?.warnings) {
+    try { syncWarnings = JSON.parse(sync.warnings); } catch {}
+  }
+
   const lastSync = !isRunning && sync?.status === "completed" ? {
     filesScanned: sync.files_scanned,
     filesAdded: sync.files_added,
     filesRemoved: sync.files_removed,
     filesMoved: sync.files_moved,
+    warnings: syncWarnings,
   } : null;
 
   const activeWorkers = (workerCounts.rows[0] as { active_workers: number })?.active_workers ?? 0;

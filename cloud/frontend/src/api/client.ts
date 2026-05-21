@@ -64,6 +64,7 @@ export interface Stats {
     filesAdded: number;
     filesRemoved: number;
     filesMoved: number;
+    warnings: string[];
   } | null;
 }
 

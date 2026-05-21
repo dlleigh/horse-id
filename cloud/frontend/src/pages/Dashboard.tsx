@@ -164,12 +164,24 @@ export default function Dashboard() {
             )}
           </div>
           {stats.lastSync && (
-            <p className="text-xs text-gray-400 mt-1.5">
-              Last sync: {stats.lastSync.filesScanned.toLocaleString()} scanned
-              {stats.lastSync.filesAdded > 0 && `, ${stats.lastSync.filesAdded.toLocaleString()} added`}
-              {stats.lastSync.filesRemoved > 0 && `, ${stats.lastSync.filesRemoved.toLocaleString()} removed`}
-              {stats.lastSync.filesMoved > 0 && `, ${stats.lastSync.filesMoved.toLocaleString()} moved`}
-            </p>
+            <>
+              <p className="text-xs text-gray-400 mt-1.5">
+                Last sync: {stats.lastSync.filesScanned.toLocaleString()} scanned
+                {stats.lastSync.filesAdded > 0 && `, ${stats.lastSync.filesAdded.toLocaleString()} added`}
+                {stats.lastSync.filesRemoved > 0 && `, ${stats.lastSync.filesRemoved.toLocaleString()} removed`}
+                {stats.lastSync.filesMoved > 0 && `, ${stats.lastSync.filesMoved.toLocaleString()} moved`}
+              </p>
+              {stats.lastSync.warnings?.length > 0 && (
+                <div className="mt-2 p-2 bg-yellow-50 border border-yellow-200 rounded text-xs text-yellow-800">
+                  <p className="font-medium mb-1">Sync warnings ({stats.lastSync.warnings.length}):</p>
+                  <ul className="list-disc list-inside space-y-0.5">
+                    {stats.lastSync.warnings.map((w, i) => (
+                      <li key={i}>{w}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </>
           )}
         </div>
       )}
