@@ -84,12 +84,26 @@ def _upsert_folder(conn, folder_id: str, name: str, parent_id: str | None):
         if parent_herd:
             # This is a horse folder (parent is a herd)
             herd_id = parent_herd[0]
-            cur.execute("SELECT id, name FROM horses WHERE drive_folder_id = %s", (folder_id,))
+            cur.execute("SELECT id, name, herd_id FROM horses WHERE drive_folder_id = %s", (folder_id,))
             existing = cur.fetchone()
             if existing:
+                updates = []
+                params = []
                 if existing[1] != name:
-                    cur.execute("UPDATE horses SET name = %s WHERE id = %s", (name, existing[0]))
-                    print(f"  Renamed horse: {existing[1]} -> {name}")
+                    updates.append("name = %s")
+                    params.append(name)
+                if existing[2] != herd_id:
+                    updates.append("herd_id = %s")
+                    params.append(herd_id)
+                if updates:
+                    params.append(existing[0])
+                    cur.execute(f"UPDATE horses SET {', '.join(updates)} WHERE id = %s", params)
+                    if existing[1] != name and existing[2] != herd_id:
+                        print(f"  Moved & renamed horse: {existing[1]} -> {name}")
+                    elif existing[2] != herd_id:
+                        print(f"  Moved horse: {name}")
+                    else:
+                        print(f"  Renamed horse: {existing[1]} -> {name}")
             else:
                 cur.execute(
                     "INSERT INTO horses (name, herd_id, drive_folder_id) VALUES (%s, %s, %s)",
@@ -136,19 +150,19 @@ def _upsert_photo(conn, change: dict) -> str:
         horse_id = horse_row[0]
 
         cur.execute(
-            "SELECT id, drive_md5, horse_id FROM photos WHERE drive_file_id = %s",
+            "SELECT id, drive_md5, horse_id, filename FROM photos WHERE drive_file_id = %s",
             (file_id,),
         )
         existing = cur.fetchone()
 
         if existing:
-            photo_id, existing_md5, existing_horse_id = existing
+            photo_id, existing_md5, existing_horse_id, existing_filename = existing
             updates = []
             params = []
             if existing_md5 != md5:
                 updates.append("drive_md5 = %s")
                 params.append(md5)
-            if name:
+            if name and name != existing_filename:
                 updates.append("filename = %s")
                 params.append(name)
             if existing_horse_id != horse_id:

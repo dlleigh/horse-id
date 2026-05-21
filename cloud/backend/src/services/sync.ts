@@ -237,6 +237,68 @@ export async function runFullScanAsChanges(syncRunId: number): Promise<void> {
       `[sync] Full scan: ${folderChanges.length} folders, ${totalFiles} files`
     );
 
+    // --- Reconcile: find DB records that no longer exist in Drive ---
+    const driveFolderIds = new Set(
+      folderChanges.map((fc: any) => fc.folder_id as string)
+    );
+    const driveFileIds = new Set(
+      allFileChanges.map((fc: any) => fc.file_id as string)
+    );
+
+    const { rows: dbHorses } = await db.execute(
+      sql`SELECT drive_folder_id FROM horses`
+    );
+    for (const row of dbHorses as { drive_folder_id: string }[]) {
+      if (!driveFolderIds.has(row.drive_folder_id)) {
+        folderChanges.push({
+          folder_id: row.drive_folder_id,
+          name: null,
+          parent_id: null,
+          removed: true,
+        });
+      }
+    }
+
+    const { rows: dbHerds } = await db.execute(
+      sql`SELECT drive_folder_id FROM herds`
+    );
+    for (const row of dbHerds as { drive_folder_id: string }[]) {
+      if (!driveFolderIds.has(row.drive_folder_id)) {
+        folderChanges.push({
+          folder_id: row.drive_folder_id,
+          name: null,
+          parent_id: null,
+          removed: true,
+        });
+      }
+    }
+
+    const { rows: dbPhotos } = await db.execute(
+      sql`SELECT drive_file_id FROM photos`
+    );
+    for (const row of dbPhotos as { drive_file_id: string }[]) {
+      if (!driveFileIds.has(row.drive_file_id)) {
+        allFileChanges.push({
+          file_id: row.drive_file_id,
+          name: null,
+          parent_id: null,
+          md5: null,
+          mime_type: null,
+          removed: true,
+        });
+      }
+    }
+
+    const removedFolders = folderChanges.filter(
+      (f: any) => f.removed
+    ).length;
+    const removedFiles = allFileChanges.filter((f: any) => f.removed).length;
+    if (removedFolders > 0 || removedFiles > 0) {
+      console.log(
+        `[sync] Reconciliation: ${removedFolders} folders, ${removedFiles} files to remove`
+      );
+    }
+
     // Reset filesScanned before dispatching — Lambda sync_batch will increment from 0
     await db
       .update(syncRuns)
