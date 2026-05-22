@@ -43,11 +43,11 @@ phases:
               echo "Changed files since last deploy ($LAST_COMMIT):"
               echo "$CHANGED"
               BUILD_RESPONDER=false; BUILD_WORKER=false; BUILD_BACKEND=false; BUILD_FRONTEND=false
-              echo "$CHANGED" | grep -qE '^(Dockerfile\.responder|webhook_responder\.py|responder-requirements\.txt)' && BUILD_RESPONDER=true
-              echo "$CHANGED" | grep -qE '^(cloud/workers/|horse_detection_lib\.py|config\.yml|config_utils\.py)' && BUILD_WORKER=true
-              echo "$CHANGED" | grep -qE '^cloud/backend/' && BUILD_BACKEND=true
-              echo "$CHANGED" | grep -qE '^cloud/frontend/' && BUILD_FRONTEND=true
-              echo "$CHANGED" | grep -q '^buildspec\.yml' && { BUILD_RESPONDER=true; BUILD_WORKER=true; BUILD_BACKEND=true; BUILD_FRONTEND=true; }
+              echo "$CHANGED" | grep -qE '^(Dockerfile\.responder|webhook_responder\.py|responder-requirements\.txt)' && BUILD_RESPONDER=true || true
+              echo "$CHANGED" | grep -qE '^(cloud/workers/|horse_detection_lib\.py|config\.yml|config_utils\.py)' && BUILD_WORKER=true || true
+              echo "$CHANGED" | grep -qE '^cloud/backend/' && BUILD_BACKEND=true || true
+              echo "$CHANGED" | grep -qE '^cloud/frontend/' && BUILD_FRONTEND=true || true
+              echo "$CHANGED" | grep -q '^buildspec\.yml' && { BUILD_RESPONDER=true; BUILD_WORKER=true; BUILD_BACKEND=true; BUILD_FRONTEND=true; } || true
             fi
           fi
       - echo "BUILD_RESPONDER=$BUILD_RESPONDER BUILD_WORKER=$BUILD_WORKER BUILD_BACKEND=$BUILD_BACKEND BUILD_FRONTEND=$BUILD_FRONTEND"
