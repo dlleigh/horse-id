@@ -185,9 +185,29 @@ export async function runBenchmark(herdId?: number, testFraction?: number): Prom
 }
 
 export async function identify(image: File, herdId?: number, topK?: number): Promise<{ predictions: Prediction[] }> {
-  const form = new FormData();
-  form.append('image', image);
-  if (herdId) form.append('herd_id', String(herdId));
-  if (topK) form.append('top_k', String(topK));
-  return fetchJson(`${BASE}/identify`, { method: 'POST', body: form });
+  // 1. Get a presigned S3 upload URL from the backend
+  const { uploadUrl, s3Key } = await fetchJson<{ uploadUrl: string; s3Key: string }>(
+    `${BASE}/identify/upload-url`
+  );
+
+  // 2. Upload the image directly to S3 (bypasses Lambda Function URL 6MB limit)
+  const uploadRes = await fetch(uploadUrl, {
+    method: 'PUT',
+    body: image,
+    headers: { 'Content-Type': image.type || 'application/octet-stream' },
+  });
+  if (!uploadRes.ok) {
+    throw new Error(`Image upload failed: HTTP ${uploadRes.status}`);
+  }
+
+  // 3. Tell the backend to run identification against the uploaded image
+  return fetchJson(`${BASE}/identify`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      s3_key: s3Key,
+      herd_id: herdId,
+      top_k: topK,
+    }),
+  });
 }
