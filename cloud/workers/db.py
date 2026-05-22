@@ -9,10 +9,25 @@ from pgvector.psycopg2 import register_vector
 _conn = None
 
 
+def _is_alive(conn):
+    """Check if a connection is actually usable (not just client-side open)."""
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT 1")
+        return True
+    except Exception:
+        return False
+
+
 def get_connection():
     global _conn
-    if _conn is not None and not _conn.closed:
+    if _conn is not None and not _conn.closed and _is_alive(_conn):
         return _conn
+    if _conn is not None:
+        try:
+            _conn.close()
+        except Exception:
+            pass
     _conn = psycopg2.connect(os.environ["DATABASE_URL"])
     _conn.autocommit = True
     register_vector(_conn)
