@@ -1,83 +1,136 @@
 version: 0.2
 
-# Define environment variables for the build process
 env:
   variables:
-    # Replace with your AWS account ID and desired region
     AWS_ACCOUNT_ID: "685175429625"
-    AWS_DEFAULT_REGION: "us-east-2" # Or your specific region (e.g., us-east-1)
-
-    # The name of your ECR repository where both images will be stored
+    AWS_DEFAULT_REGION: "us-east-2"
     ECR_REPOSITORY_NAME: "horse-id-lambda-repo"
-
-    # Image tags
     RESPONDER_IMAGE_TAG: "responder-latest"
     ML_WORKER_IMAGE_TAG: "ml-worker-latest"
-
-    # Lambda function names to update after push
+    BACKEND_IMAGE_TAG: "backend-latest"
     RESPONDER_LAMBDA_NAME: "twilio-webhook-responder"
     ML_WORKER_LAMBDA_NAME: "horse-id-ml-worker"
     BACKEND_LAMBDA_NAME: "horse-id-backend"
-    BACKEND_IMAGE_TAG: "backend-latest"
-
-    # Frontend deployment
     FRONTEND_S3_BUCKET: "horse-id-frontend"
     CLOUDFRONT_DISTRIBUTION_ID: "E1PFBLXPVLU0BG"
     VITE_NEON_AUTH_URL: "https://ep-shiny-shape-aj0git9l.neonauth.c-3.us-east-2.aws.neon.tech/neondb/auth"
+    SSM_LAST_COMMIT_PARAM: "/horse-id/last-deployed-commit"
 
 phases:
   install:
     runtime-versions:
       nodejs: 22
+
   pre_build:
     commands:
-      # Log in to Amazon ECR
       - echo "Logging in to Amazon ECR..."
       - aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$ECR_REPOSITORY_NAME
-      # Define the full URI for the ECR repository
       - REPOSITORY_URI=$AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$ECR_REPOSITORY_NAME
+
+      # --- Change detection ---
+      - CURRENT_COMMIT=$CODEBUILD_RESOLVED_SOURCE_VERSION
+      - LAST_COMMIT=$(aws ssm get-parameter --name $SSM_LAST_COMMIT_PARAM --query Parameter.Value --output text --region $AWS_DEFAULT_REGION 2>/dev/null || echo "none")
+      - |
+          if [ "$LAST_COMMIT" = "none" ]; then
+            echo "No previous deploy found — building everything"
+            BUILD_RESPONDER=true; BUILD_WORKER=true; BUILD_BACKEND=true; BUILD_FRONTEND=true
+          else
+            CHANGED=$(git diff --name-only "$LAST_COMMIT" "$CURRENT_COMMIT" 2>/dev/null || echo "FULL")
+            if [ "$CHANGED" = "FULL" ]; then
+              echo "Cannot diff (force push or history issue) — building everything"
+              BUILD_RESPONDER=true; BUILD_WORKER=true; BUILD_BACKEND=true; BUILD_FRONTEND=true
+            else
+              echo "Changed files since last deploy ($LAST_COMMIT):"
+              echo "$CHANGED"
+              BUILD_RESPONDER=false; BUILD_WORKER=false; BUILD_BACKEND=false; BUILD_FRONTEND=false
+              echo "$CHANGED" | grep -qE '^(Dockerfile\.responder|webhook_responder\.py|responder-requirements\.txt)' && BUILD_RESPONDER=true
+              echo "$CHANGED" | grep -qE '^(cloud/workers/|horse_detection_lib\.py|config\.yml|config_utils\.py)' && BUILD_WORKER=true
+              echo "$CHANGED" | grep -qE '^cloud/backend/' && BUILD_BACKEND=true
+              echo "$CHANGED" | grep -qE '^cloud/frontend/' && BUILD_FRONTEND=true
+              echo "$CHANGED" | grep -q '^buildspec\.yml' && { BUILD_RESPONDER=true; BUILD_WORKER=true; BUILD_BACKEND=true; BUILD_FRONTEND=true; }
+            fi
+          fi
+      - echo "BUILD_RESPONDER=$BUILD_RESPONDER BUILD_WORKER=$BUILD_WORKER BUILD_BACKEND=$BUILD_BACKEND BUILD_FRONTEND=$BUILD_FRONTEND"
 
   build:
     commands:
       - echo "Build started on $(date)"
-      - echo "Building the twilio webhook responder Docker image..."
-      # Build the responder image and tag it with its specific ECR URI
-      - docker build --platform linux/amd64 --file Dockerfile.responder -t $ECR_REPOSITORY_NAME:$RESPONDER_IMAGE_TAG .
-      - docker tag $ECR_REPOSITORY_NAME:$RESPONDER_IMAGE_TAG $REPOSITORY_URI:$RESPONDER_IMAGE_TAG
-
-      - echo "Building the ML worker Docker image..."
-      # Build the ML worker image (uses cloud/workers/Dockerfile with project-root build context)
-      - docker build --platform linux/amd64 --file cloud/workers/Dockerfile -t $ECR_REPOSITORY_NAME:$ML_WORKER_IMAGE_TAG .
-      - docker tag $ECR_REPOSITORY_NAME:$ML_WORKER_IMAGE_TAG $REPOSITORY_URI:$ML_WORKER_IMAGE_TAG
-
-      - echo "Building the backend API Docker image..."
-      - docker build --platform linux/amd64 --file cloud/backend/Dockerfile -t $ECR_REPOSITORY_NAME:$BACKEND_IMAGE_TAG cloud/backend
-      - docker tag $ECR_REPOSITORY_NAME:$BACKEND_IMAGE_TAG $REPOSITORY_URI:$BACKEND_IMAGE_TAG
-
-      - echo "Building frontend..."
-      - cd cloud/frontend && npm ci && VITE_NEON_AUTH_URL=$VITE_NEON_AUTH_URL npm run build && cd ../..
+      - |
+          if [ "$BUILD_RESPONDER" = "true" ]; then
+            echo "Building the twilio webhook responder Docker image..."
+            docker build --platform linux/amd64 --file Dockerfile.responder -t $ECR_REPOSITORY_NAME:$RESPONDER_IMAGE_TAG .
+            docker tag $ECR_REPOSITORY_NAME:$RESPONDER_IMAGE_TAG $REPOSITORY_URI:$RESPONDER_IMAGE_TAG
+          else
+            echo "Skipping responder (no changes)"
+          fi
+      - |
+          if [ "$BUILD_WORKER" = "true" ]; then
+            echo "Building the ML worker Docker image..."
+            docker build --platform linux/amd64 --file cloud/workers/Dockerfile -t $ECR_REPOSITORY_NAME:$ML_WORKER_IMAGE_TAG .
+            docker tag $ECR_REPOSITORY_NAME:$ML_WORKER_IMAGE_TAG $REPOSITORY_URI:$ML_WORKER_IMAGE_TAG
+          else
+            echo "Skipping ML worker (no changes)"
+          fi
+      - |
+          if [ "$BUILD_BACKEND" = "true" ]; then
+            echo "Building the backend API Docker image..."
+            docker build --platform linux/amd64 --file cloud/backend/Dockerfile -t $ECR_REPOSITORY_NAME:$BACKEND_IMAGE_TAG cloud/backend
+            docker tag $ECR_REPOSITORY_NAME:$BACKEND_IMAGE_TAG $REPOSITORY_URI:$BACKEND_IMAGE_TAG
+          else
+            echo "Skipping backend (no changes)"
+          fi
+      - |
+          if [ "$BUILD_FRONTEND" = "true" ]; then
+            echo "Building frontend..."
+            cd cloud/frontend && npm ci && VITE_NEON_AUTH_URL=$VITE_NEON_AUTH_URL npm run build && cd ../..
+          else
+            echo "Skipping frontend (no changes)"
+          fi
 
   post_build:
     on-failure: ABORT
     commands:
       - echo "Build completed on $(date)"
-      - echo "Pushing Docker images to ECR..."
-      - docker push $REPOSITORY_URI:$RESPONDER_IMAGE_TAG
-      - docker push $REPOSITORY_URI:$ML_WORKER_IMAGE_TAG
-      - docker push $REPOSITORY_URI:$BACKEND_IMAGE_TAG
 
-      # Update Lambda functions to use the new images
-      - echo "Updating Lambda functions..."
-      - aws lambda update-function-code --function-name $RESPONDER_LAMBDA_NAME --image-uri $REPOSITORY_URI:$RESPONDER_IMAGE_TAG --region $AWS_DEFAULT_REGION
-      - aws lambda update-function-code --function-name $ML_WORKER_LAMBDA_NAME --image-uri $REPOSITORY_URI:$ML_WORKER_IMAGE_TAG --region $AWS_DEFAULT_REGION
-      - aws lambda update-function-code --function-name $BACKEND_LAMBDA_NAME --image-uri $REPOSITORY_URI:$BACKEND_IMAGE_TAG --region $AWS_DEFAULT_REGION
-      - echo "Lambda functions updated."
+      # Push and deploy responder
+      - |
+          if [ "$BUILD_RESPONDER" = "true" ]; then
+            echo "Pushing responder image to ECR..."
+            docker push $REPOSITORY_URI:$RESPONDER_IMAGE_TAG
+            aws lambda update-function-code --function-name $RESPONDER_LAMBDA_NAME --image-uri $REPOSITORY_URI:$RESPONDER_IMAGE_TAG --region $AWS_DEFAULT_REGION
+            echo "Responder Lambda updated."
+          fi
 
-      # Deploy frontend to S3 and invalidate CloudFront cache
-      - echo "Deploying frontend to S3..."
-      - aws s3 sync cloud/frontend/dist/ s3://$FRONTEND_S3_BUCKET --delete
-      - aws cloudfront create-invalidation --distribution-id $CLOUDFRONT_DISTRIBUTION_ID --paths "/*"
-      - echo "Frontend deployed."
+      # Push and deploy ML worker
+      - |
+          if [ "$BUILD_WORKER" = "true" ]; then
+            echo "Pushing ML worker image to ECR..."
+            docker push $REPOSITORY_URI:$ML_WORKER_IMAGE_TAG
+            aws lambda update-function-code --function-name $ML_WORKER_LAMBDA_NAME --image-uri $REPOSITORY_URI:$ML_WORKER_IMAGE_TAG --region $AWS_DEFAULT_REGION
+            echo "ML worker Lambda updated."
+          fi
+
+      # Push and deploy backend
+      - |
+          if [ "$BUILD_BACKEND" = "true" ]; then
+            echo "Pushing backend image to ECR..."
+            docker push $REPOSITORY_URI:$BACKEND_IMAGE_TAG
+            aws lambda update-function-code --function-name $BACKEND_LAMBDA_NAME --image-uri $REPOSITORY_URI:$BACKEND_IMAGE_TAG --region $AWS_DEFAULT_REGION
+            echo "Backend Lambda updated."
+          fi
+
+      # Deploy frontend
+      - |
+          if [ "$BUILD_FRONTEND" = "true" ]; then
+            echo "Deploying frontend to S3..."
+            aws s3 sync cloud/frontend/dist/ s3://$FRONTEND_S3_BUCKET --delete
+            aws cloudfront create-invalidation --distribution-id $CLOUDFRONT_DISTRIBUTION_ID --paths "/*"
+            echo "Frontend deployed."
+          fi
+
+      # Record this commit as the last successful deploy
+      - aws ssm put-parameter --name $SSM_LAST_COMMIT_PARAM --type String --value $CURRENT_COMMIT --overwrite --region $AWS_DEFAULT_REGION
+      - echo "Saved deploy commit $CURRENT_COMMIT to SSM"
 
 artifacts:
   files: []
