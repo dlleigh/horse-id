@@ -106,7 +106,7 @@ def lambda_handler(event, context):
             drive_file_id=event.get("drive_file_id"),
             herd_id=event.get("herd_id"),
             top_k=event.get("top_k", 5),
-            confidence_threshold=event.get("confidence_threshold", 0.8),
+            confidence_threshold=event.get("confidence_threshold", 0.0),
         )
         return {"status": "ok", "task": "identify", "predictions": result["predictions"]}
 
