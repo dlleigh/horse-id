@@ -7,6 +7,20 @@ import os
 import config
 config.init()
 
+# Import task modules and pre-load ML models at module scope so they're
+# initialized during Lambda init (not on first request). This makes warm-up
+# pings and provisioned concurrency effective at eliminating cold starts.
+from detector import detect_batch, get_model as _get_yolo
+from extractor import extract_batch, get_extractor as _get_extractor
+from identifier import identify
+from syncer import sync_batch
+from db import get_connection
+
+print("Loading ML models...")
+_get_yolo()
+_get_extractor()
+print("ML models loaded.")
+
 
 def _record_start(conn, request_id, task, batch_size):
     with conn.cursor() as cur:
@@ -30,9 +44,10 @@ def lambda_handler(event, context):
     task = event.get("task")
     request_id = getattr(context, "aws_request_id", None) or "local"
 
-    if task == "detect":
-        from detector import detect_batch
-        from db import get_connection
+    if task == "ping":
+        return {"status": "ok", "task": "ping"}
+
+    elif task == "detect":
         photos = event.get("photos", [])
         print(f"Detecting {len(photos)} photos...")
         conn = get_connection()
@@ -47,8 +62,6 @@ def lambda_handler(event, context):
         return {"status": "ok", "task": "detect", "counts": result}
 
     elif task == "extract":
-        from extractor import extract_batch
-        from db import get_connection
         photos = event.get("photos", [])
         print(f"Extracting {len(photos)} photos...")
         conn = get_connection()
@@ -63,8 +76,6 @@ def lambda_handler(event, context):
         return {"status": "ok", "task": "extract", "counts": result}
 
     elif task == "sync_batch":
-        from syncer import sync_batch
-        from db import get_connection
         changes = event.get("changes", [])
         folder_changes = event.get("folder_changes", [])
         sync_run_id = event.get("sync_run_id")
@@ -82,8 +93,6 @@ def lambda_handler(event, context):
         return {"status": "ok", "task": "sync_batch", "counts": result}
 
     elif task == "identify":
-        from identifier import identify
-
         # Download image from S3 if s3_key provided
         image_bytes = None
         if event.get("s3_key"):
@@ -104,7 +113,6 @@ def lambda_handler(event, context):
     elif task == "twilio_identify":
         import requests as http_requests
         from twilio.rest import Client
-        from identifier import identify
         from db import get_herd_id_by_name, get_all_herd_names
 
         media_url = event.get("media_url")
