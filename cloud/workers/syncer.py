@@ -36,7 +36,8 @@ def sync_batch(changes: list[dict], folder_changes: list[dict], sync_run_id: int
         except Exception as e:
             msg = f"Failed to sync folder '{fc.get('name', fc.get('folder_id'))}': {e}"
             if "horses_herd_id_name_key" in str(e):
-                msg = f"Skipped move for '{fc.get('name')}': a horse with that name already exists in the target herd"
+                target_herd_name = _get_herd_name(conn, fc.get("parent_id"))
+                msg = f"Skipped move for '{fc.get('name')}': a horse with that name already exists in '{target_herd_name}'"
             print(f"  [WARN] {msg}")
             warnings.append(msg)
 
@@ -90,6 +91,16 @@ def sync_batch(changes: list[dict], folder_changes: list[dict], sync_run_id: int
 
     print(f"[syncer] Batch done: {counts}")
     return counts
+
+
+def _get_herd_name(conn, drive_folder_id: str | None) -> str:
+    """Look up a herd's name by its Drive folder ID."""
+    if not drive_folder_id:
+        return "unknown herd"
+    with conn.cursor() as cur:
+        cur.execute("SELECT name FROM herds WHERE drive_folder_id = %s", (drive_folder_id,))
+        row = cur.fetchone()
+        return row[0] if row else "unknown herd"
 
 
 def _upsert_folder(conn, folder_id: str, name: str, parent_id: str | None):
