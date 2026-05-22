@@ -19,7 +19,7 @@ RUN pip install \
 RUN mkdir -p /opt/ml/model && \
     python -c "import timm; timm.create_model('hf-hub:BVRA/wildlife-mega-L-384', pretrained=True, cache_dir='/opt/ml/model')"
 
-RUN python -c "from ultralytics import YOLO; YOLO('yolo11s-seg.pt')"
+RUN python -c "from ultralytics import YOLO; YOLO('yolo11x-seg.pt')"
 
 # Copy worker code + detection library + config
 COPY cloud/workers/*.py ${LAMBDA_TASK_ROOT}/

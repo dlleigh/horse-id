@@ -7,19 +7,19 @@ import os
 import config
 config.init()
 
-# Import task modules and pre-load ML models at module scope so they're
-# initialized during Lambda init (not on first request). This makes warm-up
-# pings and provisioned concurrency effective at eliminating cold starts.
-from detector import detect_batch, get_model as _get_yolo
+# Import task modules at module scope. Pre-load only the wildlife embedding
+# model — it's needed for the latency-sensitive identify path (Twilio SMS).
+# YOLO is only used for batch detect during sync, which is not latency-sensitive,
+# so it stays lazy-loaded to avoid wasting cold start time and memory.
+from detector import detect_batch
 from extractor import extract_batch, get_extractor as _get_extractor
 from identifier import identify
 from syncer import sync_batch
 from db import get_connection
 
-print("Loading ML models...")
-_get_yolo()
+print("Loading wildlife embedding model...")
 _get_extractor()
-print("ML models loaded.")
+print("Wildlife embedding model loaded.")
 
 
 def _record_start(conn, request_id, task, batch_size):
