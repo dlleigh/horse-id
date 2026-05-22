@@ -8,6 +8,7 @@ import syncRouter from "./routes/sync.js";
 import identifyRouter from "./routes/identify.js";
 import statsRouter from "./routes/stats.js";
 import processRouter from "./routes/process.js";
+import benchmarkRouter from "./routes/benchmark.js";
 import { requireAuth } from "./middleware/requireAuth.js";
 
 const app = express();
@@ -33,6 +34,7 @@ app.use("/api/sync", requireAuth, syncRouter);
 app.use("/api/identify", requireAuth, identifyRouter);
 app.use("/api/stats", requireAuth, statsRouter);
 app.use("/api/process", requireAuth, processRouter);
+app.use("/api/benchmark", requireAuth, benchmarkRouter);
 
 if (!process.env.AWS_LAMBDA_FUNCTION_NAME) {
   const port = process.env.PORT ?? 3000;

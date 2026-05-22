@@ -5,6 +5,7 @@ import Dashboard from './pages/Dashboard'
 import HerdDetail from './pages/HerdDetail'
 import HorseDetail from './pages/HorseDetail'
 import Identify from './pages/Identify'
+import Benchmark from './pages/Benchmark'
 import Settings from './pages/Settings'
 import Login from './pages/Login'
 
@@ -29,6 +30,7 @@ export default function App() {
         <Route path="/herds/:id" element={<HerdDetail />} />
         <Route path="/horses/:id" element={<HorseDetail />} />
         <Route path="/identify" element={<Identify />} />
+        <Route path="/benchmark" element={<Benchmark />} />
         <Route path="/settings" element={<Settings />} />
       </Route>
     </Routes>

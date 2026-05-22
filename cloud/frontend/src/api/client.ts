@@ -153,6 +153,37 @@ export async function retryPhoto(photoId: number): Promise<void> {
   await fetchJson(`${BASE}/photos/${photoId}/retry`, { method: 'POST' });
 }
 
+export interface BenchmarkPerHorse {
+  horseId: number;
+  horseName: string;
+  herdName: string;
+  testPhotos: number;
+  rank1Correct: number;
+  avgSimilarity: number;
+}
+
+export interface BenchmarkResult {
+  rank1Accuracy: number;
+  top5Accuracy: number;
+  avgTopMatchSimilarity: number;
+  avgCorrectMatchSimilarity: number;
+  testCount: number;
+  trainingCount: number;
+  horsesEvaluated: number;
+  horsesTotal: number;
+  durationMs: number;
+  seed: number;
+  perHorseResults: BenchmarkPerHorse[];
+}
+
+export async function runBenchmark(herdId?: number, testFraction?: number): Promise<BenchmarkResult> {
+  return fetchJson(`${BASE}/benchmark`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ herdId, testFraction }),
+  });
+}
+
 export async function identify(image: File, herdId?: number, topK?: number): Promise<{ predictions: Prediction[] }> {
   const form = new FormData();
   form.append('image', image);

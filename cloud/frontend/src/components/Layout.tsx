@@ -17,6 +17,7 @@ export default function Layout() {
           <div className="flex items-center gap-4">
             <Link to="/" className="text-gray-600 hover:text-gray-900">Herds</Link>
             <Link to="/identify" className="text-gray-600 hover:text-gray-900">Identify</Link>
+            <Link to="/benchmark" className="text-gray-600 hover:text-gray-900">Benchmark</Link>
             <Link to="/settings" className="text-gray-600 hover:text-gray-900">Settings</Link>
             <button
               onClick={handleSignOut}
