@@ -42,6 +42,7 @@ interface MatchRow {
 // POST /api/benchmark
 router.post("/", async (req, res) => {
   const startTime = Date.now();
+  try {
   const herdId = req.body.herdId ? Number(req.body.herdId) : null;
   const testFraction = Math.min(0.5, Math.max(0.05, req.body.testFraction ?? 0.2));
   const seed = req.body.seed ?? Math.floor(Math.random() * 1_000_000);
@@ -100,6 +101,12 @@ router.post("/", async (req, res) => {
     return;
   }
 
+  // Exclude test IDs from the training set (smaller set = avoids Postgres ROW limit)
+  const testIdSet = sql.raw(testFeatures.map((t) => t.id).join(","));
+  const herdJoinFilter = herdId
+    ? sql`JOIN horses h ON h.id = f.horse_id AND h.herd_id = ${herdId}`
+    : sql``;
+
   // 4. Run similarity queries for each test feature
   const perHorseAcc = new Map<number, { testPhotos: number; rank1Correct: number; totalSim: number }>();
   let rank1Correct = 0;
@@ -115,7 +122,8 @@ router.post("/", async (req, res) => {
           f.horse_id,
           1 - (f.embedding <=> (SELECT embedding FROM features WHERE id = ${test.id})) AS similarity
         FROM features f
-        WHERE f.id = ANY(${trainingIds})
+        ${herdJoinFilter}
+        WHERE f.id NOT IN (${testIdSet})
         ORDER BY f.horse_id, f.embedding <=> (SELECT embedding FROM features WHERE id = ${test.id})
       ) sub
       ORDER BY similarity DESC
@@ -181,6 +189,10 @@ router.post("/", async (req, res) => {
     seed,
     perHorseResults,
   });
+  } catch (err) {
+    console.error("Benchmark error:", err);
+    res.status(500).json({ error: "Benchmark failed: " + (err instanceof Error ? err.message : String(err)) });
+  }
 });
 
 export default router;
