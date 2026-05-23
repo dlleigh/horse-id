@@ -107,7 +107,34 @@ router.post("/", async (req, res) => {
     ? sql`JOIN horses h ON h.id = f.horse_id AND h.herd_id = ${herdId}`
     : sql``;
 
-  // 4. Run similarity queries for each test feature
+  // 4. Run similarity queries in parallel (batched to avoid overwhelming DB)
+  const CONCURRENCY = 10;
+  const queryResults: { test: typeof testFeatures[0]; matches: MatchRow[] }[] = [];
+
+  for (let i = 0; i < testFeatures.length; i += CONCURRENCY) {
+    const batch = testFeatures.slice(i, i + CONCURRENCY);
+    const batchResults = await Promise.all(
+      batch.map(async (test) => {
+        const matches = await db.execute<MatchRow>(sql`
+          SELECT * FROM (
+            SELECT DISTINCT ON (f.horse_id)
+              f.horse_id,
+              1 - (f.embedding <=> (SELECT embedding FROM features WHERE id = ${test.id})) AS similarity
+            FROM features f
+            ${herdJoinFilter}
+            WHERE f.id NOT IN (${testIdSet})
+            ORDER BY f.horse_id, f.embedding <=> (SELECT embedding FROM features WHERE id = ${test.id})
+          ) sub
+          ORDER BY similarity DESC
+          LIMIT 5
+        `);
+        return { test, matches: matches.rows };
+      })
+    );
+    queryResults.push(...batchResults);
+  }
+
+  // Aggregate results
   const perHorseAcc = new Map<number, { testPhotos: number; rank1Correct: number; totalSim: number }>();
   let rank1Correct = 0;
   let top5Correct = 0;
@@ -115,23 +142,8 @@ router.post("/", async (req, res) => {
   let totalCorrectSim = 0;
   let correctSimCount = 0;
 
-  for (const test of testFeatures) {
-    const matches = await db.execute<MatchRow>(sql`
-      SELECT * FROM (
-        SELECT DISTINCT ON (f.horse_id)
-          f.horse_id,
-          1 - (f.embedding <=> (SELECT embedding FROM features WHERE id = ${test.id})) AS similarity
-        FROM features f
-        ${herdJoinFilter}
-        WHERE f.id NOT IN (${testIdSet})
-        ORDER BY f.horse_id, f.embedding <=> (SELECT embedding FROM features WHERE id = ${test.id})
-      ) sub
-      ORDER BY similarity DESC
-      LIMIT 5
-    `);
-
-    const results = matches.rows;
-    const topMatch = results[0];
+  for (const { test, matches } of queryResults) {
+    const topMatch = matches[0];
 
     if (topMatch) {
       totalTopSim += topMatch.similarity;
@@ -142,7 +154,7 @@ router.post("/", async (req, res) => {
         correctSimCount++;
       }
 
-      const inTop5 = results.some((r) => r.horse_id === test.horseId);
+      const inTop5 = matches.some((r) => r.horse_id === test.horseId);
       if (inTop5) top5Correct++;
     }
 
