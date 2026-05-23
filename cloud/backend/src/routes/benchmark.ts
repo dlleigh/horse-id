@@ -168,6 +168,7 @@ router.post("/", async (req, res) => {
       horseId,
       horseName: horseInfo.get(horseId)!.name,
       herdName: horseInfo.get(horseId)!.herdName,
+      trainingPhotos: byHorse.get(horseId)!.featureIds.length - acc.testPhotos,
       testPhotos: acc.testPhotos,
       rank1Correct: acc.rank1Correct,
       avgSimilarity: acc.rank1Correct > 0 ? acc.totalSim / acc.rank1Correct : 0,

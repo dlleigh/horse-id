@@ -157,6 +157,7 @@ export interface BenchmarkPerHorse {
   horseId: number;
   horseName: string;
   herdName: string;
+  trainingPhotos: number;
   testPhotos: number;
   rank1Correct: number;
   avgSimilarity: number;

@@ -153,6 +153,7 @@ export default function Benchmark() {
                   <tr className="border-b border-gray-200 text-left">
                     <th className="pb-2 font-medium text-gray-500">Horse</th>
                     <th className="pb-2 font-medium text-gray-500">Herd</th>
+                    <th className="pb-2 font-medium text-gray-500 text-right">Training Photos</th>
                     <th className="pb-2 font-medium text-gray-500 text-right">Test Photos</th>
                     <th className="pb-2 font-medium text-gray-500 text-right">Rank-1 Correct</th>
                     <th className="pb-2 font-medium text-gray-500 text-right">Avg Similarity</th>
@@ -165,6 +166,7 @@ export default function Benchmark() {
                       <tr key={h.horseId} className="border-b border-gray-100">
                         <td className="py-2 font-medium text-gray-900">{h.horseName}</td>
                         <td className="py-2 text-gray-600">{h.herdName}</td>
+                        <td className="py-2 text-right text-gray-600">{h.trainingPhotos}</td>
                         <td className="py-2 text-right text-gray-600">{h.testPhotos}</td>
                         <td className={`py-2 text-right font-medium ${accuracyColor(horseAcc)}`}>
                           {h.rank1Correct}/{h.testPhotos}
