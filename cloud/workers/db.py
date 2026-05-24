@@ -136,7 +136,7 @@ def query_similar(embedding: list[float], limit: int = 5, herd_id: int = None) -
             JOIN horses h ON h.id = f.horse_id
             JOIN herds hd ON hd.id = h.herd_id
             JOIN photos p ON p.id = f.photo_id
-            WHERE TRUE {herd_filter}
+            WHERE p.excluded = false {herd_filter}
             ORDER BY f.horse_id, f.embedding <=> %s::vector
         ) sub
         ORDER BY similarity DESC

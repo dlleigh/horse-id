@@ -48,14 +48,15 @@ router.post("/", async (req, res) => {
   const seed = req.body.seed ?? Math.floor(Math.random() * 1_000_000);
   const rng = mulberry32(seed);
 
-  // 1. Fetch all features with horse/herd info
-  const herdFilter = herdId ? sql`WHERE h.herd_id = ${herdId}` : sql``;
+  // 1. Fetch all features with horse/herd info (exclude excluded photos)
+  const herdFilter = herdId ? sql`AND h.herd_id = ${herdId}` : sql``;
   const allFeatures = await db.execute<FeatureRow>(sql`
     SELECT f.id, f.horse_id, h.name AS horse_name, hd.name AS herd_name
     FROM features f
+    JOIN photos p ON p.id = f.photo_id
     JOIN horses h ON h.id = f.horse_id
     JOIN herds hd ON hd.id = h.herd_id
-    ${herdFilter}
+    WHERE p.excluded = false ${herdFilter}
     ORDER BY f.horse_id, f.id
   `);
 
@@ -121,8 +122,10 @@ router.post("/", async (req, res) => {
               f.horse_id,
               1 - (f.embedding <=> (SELECT embedding FROM features WHERE id = ${test.id})) AS similarity
             FROM features f
+            JOIN photos p ON p.id = f.photo_id
             ${herdJoinFilter}
             WHERE f.id NOT IN (${testIdSet})
+              AND p.excluded = false
             ORDER BY f.horse_id, f.embedding <=> (SELECT embedding FROM features WHERE id = ${test.id})
           ) sub
           ORDER BY similarity DESC
