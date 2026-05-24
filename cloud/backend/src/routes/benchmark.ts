@@ -135,7 +135,7 @@ router.post("/", async (req, res) => {
   }
 
   // Aggregate results
-  const perHorseAcc = new Map<number, { testPhotos: number; rank1Correct: number; totalSim: number }>();
+  const perHorseAcc = new Map<number, { testPhotos: number; rank1Correct: number; totalSim: number; confusedWith: Map<number, number> }>();
   let rank1Correct = 0;
   let top5Correct = 0;
   let totalTopSim = 0;
@@ -161,13 +161,15 @@ router.post("/", async (req, res) => {
     // Per-horse tracking
     let acc = perHorseAcc.get(test.horseId);
     if (!acc) {
-      acc = { testPhotos: 0, rank1Correct: 0, totalSim: 0 };
+      acc = { testPhotos: 0, rank1Correct: 0, totalSim: 0, confusedWith: new Map() };
       perHorseAcc.set(test.horseId, acc);
     }
     acc.testPhotos++;
     if (topMatch?.horse_id === test.horseId) {
       acc.rank1Correct++;
       acc.totalSim += topMatch.similarity;
+    } else if (topMatch) {
+      acc.confusedWith.set(topMatch.horse_id, (acc.confusedWith.get(topMatch.horse_id) ?? 0) + 1);
     }
   }
 
@@ -184,6 +186,14 @@ router.post("/", async (req, res) => {
       testPhotos: acc.testPhotos,
       rank1Correct: acc.rank1Correct,
       avgSimilarity: acc.rank1Correct > 0 ? acc.totalSim / acc.rank1Correct : 0,
+      confusedWith: Array.from(acc.confusedWith.entries())
+        .sort((a, b) => b[1] - a[1])
+        .map(([cHorseId, count]) => ({
+          horseId: cHorseId,
+          horseName: horseInfo.get(cHorseId)?.name ?? `Horse #${cHorseId}`,
+          herdName: horseInfo.get(cHorseId)?.herdName ?? "",
+          count,
+        })),
     })
   );
 

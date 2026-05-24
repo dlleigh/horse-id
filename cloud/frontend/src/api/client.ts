@@ -153,6 +153,13 @@ export async function retryPhoto(photoId: number): Promise<void> {
   await fetchJson(`${BASE}/photos/${photoId}/retry`, { method: 'POST' });
 }
 
+export interface ConfusionEntry {
+  horseId: number;
+  horseName: string;
+  herdName: string;
+  count: number;
+}
+
 export interface BenchmarkPerHorse {
   horseId: number;
   horseName: string;
@@ -161,6 +168,7 @@ export interface BenchmarkPerHorse {
   testPhotos: number;
   rank1Correct: number;
   avgSimilarity: number;
+  confusedWith: ConfusionEntry[];
 }
 
 export interface BenchmarkResult {

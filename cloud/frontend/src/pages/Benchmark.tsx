@@ -157,6 +157,7 @@ export default function Benchmark() {
                     <th className="pb-2 font-medium text-gray-500 text-right">Test Photos</th>
                     <th className="pb-2 font-medium text-gray-500 text-right">Rank-1 Correct</th>
                     <th className="pb-2 font-medium text-gray-500 text-right">Avg Similarity</th>
+                    <th className="pb-2 font-medium text-gray-500">Confused With</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -173,6 +174,13 @@ export default function Benchmark() {
                         </td>
                         <td className="py-2 text-right text-gray-600">
                           {h.avgSimilarity > 0 ? h.avgSimilarity.toFixed(3) : '—'}
+                        </td>
+                        <td className="py-2 text-gray-600">
+                          {h.confusedWith.length > 0
+                            ? h.confusedWith.map(c =>
+                                `${c.horseName} (${c.herdName})${c.count > 1 ? ` ×${c.count}` : ''}`
+                              ).join(', ')
+                            : '—'}
                         </td>
                       </tr>
                     )
