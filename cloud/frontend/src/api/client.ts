@@ -193,6 +193,16 @@ export async function runBenchmark(herdId?: number, testFraction?: number): Prom
   });
 }
 
+export interface HorseSearchResult {
+  id: number;
+  name: string;
+  herdName: string;
+}
+
+export async function searchHorses(query: string): Promise<HorseSearchResult[]> {
+  return fetchJson(`${BASE}/horses?q=${encodeURIComponent(query)}`);
+}
+
 export async function identify(image: File, herdId?: number, topK?: number): Promise<{ predictions: Prediction[] }> {
   // 1. Get a presigned S3 upload URL from the backend
   const { uploadUrl, s3Key } = await fetchJson<{ uploadUrl: string; s3Key: string }>(

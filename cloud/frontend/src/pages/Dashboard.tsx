@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from 'react'
-import { Link } from 'react-router-dom'
-import { getHerds, getStats, triggerSync, triggerProcessing, getErrorPhotos, retryPhoto, type Herd, type Stats, type ErrorPhoto } from '../api/client'
+import { useEffect, useRef, useState, useCallback } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
+import { getHerds, getStats, triggerSync, triggerProcessing, getErrorPhotos, retryPhoto, searchHorses, type Herd, type Stats, type ErrorPhoto, type HorseSearchResult } from '../api/client'
 
 export default function Dashboard() {
   const [herds, setHerds] = useState<Herd[]>([])
@@ -10,6 +10,45 @@ export default function Dashboard() {
   const [errorPhotos, setErrorPhotos] = useState<ErrorPhoto[]>([])
   const [showErrors, setShowErrors] = useState(false)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const navigate = useNavigate()
+
+  // Horse search
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchResults, setSearchResults] = useState<HorseSearchResult[]>([])
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [searchLoading, setSearchLoading] = useState(false)
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const searchRef = useRef<HTMLDivElement>(null)
+
+  const handleSearch = useCallback((query: string) => {
+    setSearchQuery(query)
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current)
+    if (!query.trim()) {
+      setSearchResults([])
+      setSearchOpen(false)
+      return
+    }
+    searchTimerRef.current = setTimeout(async () => {
+      setSearchLoading(true)
+      try {
+        const results = await searchHorses(query.trim())
+        setSearchResults(results)
+        setSearchOpen(true)
+      } catch { /* ignore */ }
+      finally { setSearchLoading(false) }
+    }, 300)
+  }, [])
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (searchRef.current && !searchRef.current.contains(e.target as Node)) {
+        setSearchOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [])
 
   // Fetch initial data
   useEffect(() => {
@@ -230,6 +269,43 @@ export default function Dashboard() {
           </table>
         </div>
       )}
+
+      {/* Horse search */}
+      <div ref={searchRef} className="relative mb-4">
+        <input
+          type="text"
+          placeholder="Search horses..."
+          value={searchQuery}
+          onChange={e => handleSearch(e.target.value)}
+          onFocus={() => { if (searchResults.length > 0) setSearchOpen(true) }}
+          className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+        />
+        {searchOpen && (
+          <div className="absolute z-10 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg max-h-64 overflow-y-auto">
+            {searchLoading ? (
+              <p className="px-4 py-3 text-sm text-gray-500">Searching...</p>
+            ) : searchResults.length === 0 ? (
+              <p className="px-4 py-3 text-sm text-gray-500">No horses found</p>
+            ) : (
+              searchResults.map(h => (
+                <button
+                  key={h.id}
+                  className="w-full text-left px-4 py-2 text-sm hover:bg-blue-50 focus:bg-blue-50 focus:outline-none"
+                  onMouseDown={() => {
+                    setSearchOpen(false)
+                    setSearchQuery('')
+                    setSearchResults([])
+                    navigate(`/horses/${h.id}`)
+                  }}
+                >
+                  <span className="font-medium text-gray-900">{h.name}</span>
+                  <span className="text-gray-500 ml-2">{h.herdName}</span>
+                </button>
+              ))
+            )}
+          </div>
+        )}
+      </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         {herds.map(herd => (

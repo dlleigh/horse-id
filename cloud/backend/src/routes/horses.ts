@@ -1,9 +1,29 @@
 import { Router } from "express";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { db } from "../db/client.js";
 import { horses, herds, photos } from "../db/schema.js";
 
 const router = Router();
+
+// GET /api/horses — search horses by name
+router.get("/", async (req, res) => {
+  const q = String(req.query.q || "").trim();
+  if (!q) {
+    res.json([]);
+    return;
+  }
+
+  const results = await db.execute(sql`
+    SELECT h.id, h.name, hd.name AS "herdName"
+    FROM horses h
+    JOIN herds hd ON hd.id = h.herd_id
+    WHERE h.name ILIKE ${'%' + q + '%'}
+    ORDER BY h.name
+    LIMIT 10
+  `);
+
+  res.json(results.rows);
+});
 
 // GET /api/horses/:id — horse detail with photos
 router.get("/:id", async (req, res) => {
