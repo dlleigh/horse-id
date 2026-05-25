@@ -80,7 +80,8 @@ export default function HorseDetail() {
           <div
             key={photo.id}
             className={`bg-white rounded-lg border overflow-hidden ${
-              photo.excluded ? 'opacity-40 border-red-200' : 'border-gray-200'
+              photo.excluded || photo.detectionResult === 'NONE' || photo.detectionResult === 'MULTIPLE'
+                ? 'opacity-40 border-red-200' : 'border-gray-200'
             }`}
           >
             <div
