@@ -1,5 +1,6 @@
 import { Link, Outlet } from 'react-router-dom'
 import { authClient } from '../lib/auth'
+import HorseSearch from './HorseSearch'
 
 export default function Layout() {
   async function handleSignOut() {
@@ -14,6 +15,7 @@ export default function Layout() {
           <Link to="/" className="text-xl font-semibold text-gray-900">
             Horse ID
           </Link>
+          <HorseSearch />
           <div className="flex items-center gap-4">
             <Link to="/" className="text-gray-600 hover:text-gray-900">Herds</Link>
             <Link to="/identify" className="text-gray-600 hover:text-gray-900">Identify</Link>
