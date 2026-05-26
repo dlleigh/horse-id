@@ -21,6 +21,11 @@ RUN mkdir -p /opt/ml/model && \
 
 RUN python -c "from ultralytics import YOLO; YOLO('yolo11x-seg.pt')"
 
+# Copy fine-tuned weights from S3 (if available)
+RUN pip install awscli --no-cache-dir && \
+    aws s3 cp s3://horse-id-models/finetuned-mega-L-384.pth /opt/ml/model/finetuned-mega-L-384.pth || \
+    echo "No fine-tuned weights found in S3, using pretrained model"
+
 # Copy worker code + detection library + config
 COPY cloud/workers/*.py ${LAMBDA_TASK_ROOT}/
 COPY horse_detection_lib.py ${LAMBDA_TASK_ROOT}/

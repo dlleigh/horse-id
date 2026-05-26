@@ -107,6 +107,26 @@ export async function fanOutProcessing(
 }
 
 /**
+ * Delete all feature embeddings and reset ready photos to 'detected'
+ * so they get re-extracted (e.g. after deploying a new model).
+ */
+export async function resetAllFeatures(): Promise<{ deleted: number; reset: number }> {
+  const deleteResult = await db.execute(sql`DELETE FROM features`);
+  const deleted = Number(deleteResult.rowCount ?? 0);
+
+  const resetResult = await db.execute(sql`
+    UPDATE photos SET processing_status = 'detected'
+    WHERE processing_status = 'ready'
+      AND detection_result = 'SINGLE'
+      AND excluded = false
+  `);
+  const reset = Number(resetResult.rowCount ?? 0);
+
+  console.log(`[process] Reset all features: ${deleted} embeddings deleted, ${reset} photos reset to detected`);
+  return { deleted, reset };
+}
+
+/**
  * Reset photos stuck in transient states for > 15 minutes.
  * Call before fanOutProcessing to recover from Lambda failures.
  */

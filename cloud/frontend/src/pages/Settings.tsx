@@ -1,12 +1,58 @@
 import { useState } from 'react'
 import { authClient } from '../lib/auth'
+import { triggerReExtract } from '../api/client'
 
 export default function Settings() {
   return (
     <div className="space-y-8 max-w-md">
       <h1 className="text-2xl font-semibold text-gray-900">Settings</h1>
+      <ReExtractSection />
       <AddUserForm />
       <ChangePasswordForm />
+    </div>
+  )
+}
+
+function ReExtractSection() {
+  const [loading, setLoading] = useState(false)
+  const [result, setResult] = useState<{ deleted: number; reset: number } | null>(null)
+  const [error, setError] = useState('')
+
+  async function handleReExtract() {
+    if (!confirm('This will delete all embeddings and re-extract them. This may take a while. Continue?')) return
+    setError('')
+    setResult(null)
+    setLoading(true)
+    try {
+      const r = await triggerReExtract()
+      setResult({ deleted: r.deleted, reset: r.reset })
+    } catch (e: any) {
+      setError(e.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="bg-white p-6 rounded-lg border border-gray-200 space-y-4">
+      <h2 className="text-lg font-medium text-gray-900">Re-extract Embeddings</h2>
+      <p className="text-sm text-gray-500">
+        Delete all feature embeddings and re-extract them using the current model.
+        Use this after deploying a fine-tuned model.
+      </p>
+      {error && <p className="text-sm text-red-600 bg-red-50 p-2 rounded">{error}</p>}
+      {result && (
+        <p className="text-sm text-green-600 bg-green-50 p-2 rounded">
+          Started: {result.deleted} embeddings deleted, {result.reset} photos queued for extraction.
+        </p>
+      )}
+      <button
+        onClick={handleReExtract}
+        disabled={loading}
+        className="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 disabled:opacity-50 disabled:cursor-not-allowed"
+      >
+        {loading ? 'Starting...' : 'Re-extract All'}
+      </button>
     </div>
   )
 }

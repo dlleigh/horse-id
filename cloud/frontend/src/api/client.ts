@@ -203,6 +203,10 @@ export async function searchHorses(query: string): Promise<HorseSearchResult[]> 
   return fetchJson(`${BASE}/horses?q=${encodeURIComponent(query)}`);
 }
 
+export async function triggerReExtract(): Promise<{ status: string; deleted: number; reset: number }> {
+  return fetchJson(`${BASE}/process/re-extract`, { method: 'POST' });
+}
+
 export async function identify(image: File, herdId?: number, topK?: number): Promise<{ predictions: Prediction[] }> {
   // 1. Get a presigned S3 upload URL from the backend
   const { uploadUrl, s3Key } = await fetchJson<{ uploadUrl: string; s3Key: string }>(

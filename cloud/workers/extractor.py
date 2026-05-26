@@ -9,6 +9,7 @@ try:
 except ImportError:
     pass
 import timm
+import torch
 import torchvision.transforms as T
 from wildlife_tools.features import DeepFeatures
 from wildlife_tools.data import ImageDataset
@@ -19,6 +20,7 @@ from db import update_photo_status, insert_feature
 MODEL_NAME = "hf-hub:BVRA/wildlife-mega-L-384"
 _default_cache = "/opt/ml/model" if os.path.isdir("/opt/ml") else os.path.join(os.path.expanduser("~"), ".cache", "huggingface")
 MODEL_CACHE = os.environ.get("MODEL_CACHE_DIR", _default_cache)
+FINETUNED_WEIGHTS = os.path.join(MODEL_CACHE, "finetuned-mega-L-384.pth")
 IMAGE_SIZE = 384
 
 _backbone = None
@@ -32,6 +34,10 @@ def get_extractor():
         _backbone = timm.create_model(
             MODEL_NAME, num_classes=0, pretrained=True, cache_dir=MODEL_CACHE
         )
+        if os.path.exists(FINETUNED_WEIGHTS):
+            print(f"Loading fine-tuned weights from {FINETUNED_WEIGHTS}")
+            state_dict = torch.load(FINETUNED_WEIGHTS, map_location="cpu", weights_only=True)
+            _backbone.load_state_dict(state_dict)
         _extractor = DeepFeatures(_backbone, num_workers=0)
         _transform = T.Compose([
             T.Resize([IMAGE_SIZE, IMAGE_SIZE]),
