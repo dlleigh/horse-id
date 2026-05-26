@@ -228,14 +228,13 @@ export default function Benchmark() {
                     <th className="pb-2 font-medium text-gray-500 text-right">Training Photos</th>
                     <th className="pb-2 font-medium text-gray-500 text-right">Test Photos</th>
                     <th className="pb-2 font-medium text-gray-500 text-right">Rank-1 Correct</th>
+                    <th className="pb-2 font-medium text-gray-500 text-right">Accuracy</th>
                     <th className="pb-2 font-medium text-gray-500 text-right">Avg Similarity</th>
                     <th className="pb-2 pl-4 font-medium text-gray-500">Confused With</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {result.perHorseResults.map(h => {
-                    const horseAcc = h.testPhotos > 0 ? h.rank1Correct / h.testPhotos : 0
-                    return (
+                  {result.perHorseResults.map(h => (
                       <tr key={h.horseId} className="border-b border-gray-100">
                         <td className="py-2 font-medium text-gray-900">
                           <Link to={`/horses/${h.horseId}`} className="text-blue-600 hover:underline">{h.horseName}</Link>
@@ -243,8 +242,11 @@ export default function Benchmark() {
                         <td className="py-2 text-gray-600">{h.herdName}</td>
                         <td className="py-2 text-right text-gray-600">{h.trainingPhotos}</td>
                         <td className="py-2 text-right text-gray-600">{h.testPhotos}</td>
-                        <td className={`py-2 text-right font-medium ${accuracyColor(horseAcc)}`}>
+                        <td className={`py-2 text-right font-medium ${accuracyColor(h.accuracy)}`}>
                           {h.rank1Correct}/{h.testPhotos}
+                        </td>
+                        <td className={`py-2 text-right font-medium ${accuracyColor(h.accuracy)}`}>
+                          {pct(h.accuracy)}
                         </td>
                         <td className="py-2 text-right text-gray-600">
                           {h.avgSimilarity > 0 ? h.avgSimilarity.toFixed(3) : '—'}
@@ -261,8 +263,7 @@ export default function Benchmark() {
                             : '—'}
                         </td>
                       </tr>
-                    )
-                  })}
+                  ))}
                 </tbody>
               </table>
             </div>

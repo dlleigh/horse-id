@@ -171,6 +171,7 @@ export interface BenchmarkPerHorse {
   trainingPhotos: number;
   testPhotos: number;
   rank1Correct: number;
+  accuracy: number;
   avgSimilarity: number;
   confusedWith: ConfusionEntry[];
 }

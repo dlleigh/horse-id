@@ -225,6 +225,7 @@ router.post("/", async (req, res) => {
       trainingPhotos: byHorse.get(horseId)!.featureIds.length - acc.testPhotos,
       testPhotos: acc.testPhotos,
       rank1Correct: acc.rank1Correct,
+      accuracy: acc.testPhotos > 0 ? acc.rank1Correct / acc.testPhotos : 0,
       avgSimilarity: acc.rank1Correct > 0 ? acc.totalSim / acc.rank1Correct : 0,
       confusedWith: Array.from(acc.confusedWith.entries())
         .sort((a, b) => b[1] - a[1])
@@ -237,7 +238,7 @@ router.post("/", async (req, res) => {
     })
   );
 
-  perHorseResults.sort((a, b) => b.avgSimilarity - a.avgSimilarity);
+  perHorseResults.sort((a, b) => a.accuracy - b.accuracy || a.avgSimilarity - b.avgSimilarity);
 
   res.json({
     rank1Accuracy: testCount > 0 ? rank1Correct / testCount : 0,
