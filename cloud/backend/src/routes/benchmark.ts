@@ -46,6 +46,7 @@ router.post("/", async (req, res) => {
   const herdId = req.body.herdId ? Number(req.body.herdId) : null;
   const testFraction = Math.min(0.5, Math.max(0.05, req.body.testFraction ?? 0.2));
   const minPhotos = Math.max(0, Math.floor(req.body.minPhotos ?? 0));
+  const mode: "individual" | "centroid" = req.body.mode === "centroid" ? "centroid" : "individual";
   const seed = req.body.seed ?? Math.floor(Math.random() * 1_000_000);
   const rng = mulberry32(seed);
 
@@ -117,21 +118,34 @@ router.post("/", async (req, res) => {
     const batch = testFeatures.slice(i, i + CONCURRENCY);
     const batchResults = await Promise.all(
       batch.map(async (test) => {
-        const matches = await db.execute<MatchRow>(sql`
-          SELECT * FROM (
-            SELECT DISTINCT ON (f.horse_id)
-              f.horse_id,
-              1 - (f.embedding <=> (SELECT embedding FROM features WHERE id = ${test.id})) AS similarity
-            FROM features f
-            JOIN photos p ON p.id = f.photo_id
-            ${herdJoinFilter}
-            WHERE f.id NOT IN (${testIdSet})
-              AND p.excluded = false
-            ORDER BY f.horse_id, f.embedding <=> (SELECT embedding FROM features WHERE id = ${test.id})
-          ) sub
-          ORDER BY similarity DESC
-          LIMIT 5
-        `);
+        const matches = mode === "centroid"
+          ? await db.execute<MatchRow>(sql`
+              SELECT f.horse_id,
+                1 - (AVG(f.embedding) <=> (SELECT embedding FROM features WHERE id = ${test.id})) AS similarity
+              FROM features f
+              JOIN photos p ON p.id = f.photo_id
+              ${herdJoinFilter}
+              WHERE f.id NOT IN (${testIdSet})
+                AND p.excluded = false
+              GROUP BY f.horse_id
+              ORDER BY similarity DESC
+              LIMIT 5
+            `)
+          : await db.execute<MatchRow>(sql`
+              SELECT * FROM (
+                SELECT DISTINCT ON (f.horse_id)
+                  f.horse_id,
+                  1 - (f.embedding <=> (SELECT embedding FROM features WHERE id = ${test.id})) AS similarity
+                FROM features f
+                JOIN photos p ON p.id = f.photo_id
+                ${herdJoinFilter}
+                WHERE f.id NOT IN (${testIdSet})
+                  AND p.excluded = false
+                ORDER BY f.horse_id, f.embedding <=> (SELECT embedding FROM features WHERE id = ${test.id})
+              ) sub
+              ORDER BY similarity DESC
+              LIMIT 5
+            `);
         return { test, matches: matches.rows };
       })
     );
@@ -214,6 +228,7 @@ router.post("/", async (req, res) => {
     horsesTotal: byHorse.size,
     durationMs: Date.now() - startTime,
     seed,
+    mode,
     perHorseResults,
   });
   } catch (err) {

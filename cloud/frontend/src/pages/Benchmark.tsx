@@ -16,6 +16,8 @@ export default function Benchmark() {
   const [selectedHerdId, setSelectedHerdId] = useState<string>('')
   const [testPct, setTestPct] = useState(20)
   const [minPhotos, setMinPhotos] = useState(0)
+  const [mode, setMode] = useState<'individual' | 'centroid'>('individual')
+  const [seedInput, setSeedInput] = useState('')
   const [result, setResult] = useState<BenchmarkResult | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -33,6 +35,8 @@ export default function Benchmark() {
         selectedHerdId ? Number(selectedHerdId) : undefined,
         testPct / 100,
         minPhotos || undefined,
+        mode,
+        seedInput ? Number(seedInput) : undefined,
       )
       setResult(r)
     } catch (e: unknown) {
@@ -100,6 +104,35 @@ export default function Benchmark() {
             />
           </div>
 
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Matching mode
+            </label>
+            <select
+              value={mode}
+              onChange={e => setMode(e.target.value as 'individual' | 'centroid')}
+              className="border border-gray-300 rounded-md px-3 py-2 text-sm"
+              disabled={loading}
+            >
+              <option value="individual">Individual (best photo)</option>
+              <option value="centroid">Centroid (averaged)</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Seed
+            </label>
+            <input
+              type="number"
+              value={seedInput}
+              onChange={e => setSeedInput(e.target.value)}
+              placeholder="Random"
+              className="border border-gray-300 rounded-md px-3 py-2 text-sm w-28"
+              disabled={loading}
+            />
+          </div>
+
           <button
             onClick={handleRun}
             disabled={loading}
@@ -156,6 +189,7 @@ export default function Benchmark() {
               <span>Test photos: {result.testCount}</span>
               <span>Training photos: {result.trainingCount}</span>
               <span>Horses evaluated: {result.horsesEvaluated} / {result.horsesTotal}</span>
+              <span>Mode: {result.mode === 'centroid' ? 'Centroid' : 'Individual'}</span>
               <span>Duration: {(result.durationMs / 1000).toFixed(1)}s</span>
               <span>Seed: {result.seed}</span>
             </div>
