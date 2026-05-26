@@ -45,6 +45,7 @@ router.post("/", async (req, res) => {
   try {
   const herdId = req.body.herdId ? Number(req.body.herdId) : null;
   const testFraction = Math.min(0.5, Math.max(0.05, req.body.testFraction ?? 0.2));
+  const minPhotos = Math.max(0, Math.floor(req.body.minPhotos ?? 0));
   const seed = req.body.seed ?? Math.floor(Math.random() * 1_000_000);
   const rng = mulberry32(seed);
 
@@ -78,8 +79,8 @@ router.post("/", async (req, res) => {
 
   for (const [horseId, entry] of byHorse) {
     horseInfo.set(horseId, { name: entry.name, herdName: entry.herdName });
-    if (entry.featureIds.length < 2) {
-      // Only 1 photo — training only
+    if (entry.featureIds.length < 2 || (minPhotos > 0 && entry.featureIds.length < minPhotos)) {
+      // Not enough photos — training only
       trainingIds.push(...entry.featureIds);
       continue;
     }

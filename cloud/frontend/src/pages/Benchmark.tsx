@@ -15,6 +15,7 @@ export default function Benchmark() {
   const [herds, setHerds] = useState<Herd[]>([])
   const [selectedHerdId, setSelectedHerdId] = useState<string>('')
   const [testPct, setTestPct] = useState(20)
+  const [minPhotos, setMinPhotos] = useState(0)
   const [result, setResult] = useState<BenchmarkResult | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -31,6 +32,7 @@ export default function Benchmark() {
       const r = await runBenchmark(
         selectedHerdId ? Number(selectedHerdId) : undefined,
         testPct / 100,
+        minPhotos || undefined,
       )
       setResult(r)
     } catch (e: unknown) {
@@ -81,6 +83,21 @@ export default function Benchmark() {
               />
               <span className="text-sm text-gray-600 w-10">{testPct}%</span>
             </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Min photos per horse
+            </label>
+            <input
+              type="number"
+              min={0}
+              max={50}
+              value={minPhotos}
+              onChange={e => setMinPhotos(Number(e.target.value))}
+              className="border border-gray-300 rounded-md px-3 py-2 text-sm w-20"
+              disabled={loading}
+            />
           </div>
 
           <button

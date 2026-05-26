@@ -189,11 +189,11 @@ export interface BenchmarkResult {
   perHorseResults: BenchmarkPerHorse[];
 }
 
-export async function runBenchmark(herdId?: number, testFraction?: number): Promise<BenchmarkResult> {
+export async function runBenchmark(herdId?: number, testFraction?: number, minPhotos?: number): Promise<BenchmarkResult> {
   return fetchJson(`${BASE}/benchmark`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ herdId, testFraction }),
+    body: JSON.stringify({ herdId, testFraction, minPhotos }),
   });
 }
 
