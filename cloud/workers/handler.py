@@ -113,7 +113,7 @@ def lambda_handler(event, context):
     elif task == "twilio_identify":
         import requests as http_requests
         from twilio.rest import Client
-        from db import get_herd_id_by_name, get_all_herd_names
+        from db import fuzzy_match_herd, get_all_herd_names
 
         media_url = event.get("media_url")
         from_number = event.get("from_number")
@@ -128,10 +128,11 @@ def lambda_handler(event, context):
             twilio_client.messages.create(body=body, from_=to_number, to=from_number)
 
         try:
-            # Resolve herd name to ID
+            # Resolve herd name to ID (with fuzzy matching)
             herd_id = None
+            resolved_herd_name = None
             if herd_name:
-                herd_id = get_herd_id_by_name(herd_name)
+                herd_id, resolved_herd_name = fuzzy_match_herd(herd_name)
                 if herd_id is None:
                     valid = get_all_herd_names()
                     msg = f"Sorry, I don't recognize the herd '{herd_name}'.\n\nValid herds:\n"
@@ -157,8 +158,8 @@ def lambda_handler(event, context):
             # Format SMS response
             predictions = result["predictions"]
             msg = "\n"
-            if herd_name:
-                msg += f"Searched in {herd_name}:\n\n"
+            if resolved_herd_name:
+                msg += f"Searched in {resolved_herd_name}:\n\n"
             msg += "Horse Identification Results:\n"
             if predictions:
                 for p in predictions:

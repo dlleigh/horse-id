@@ -96,13 +96,56 @@ def get_detected_photos(limit: int = 100) -> list[dict]:
         return [dict(zip(cols, row)) for row in cur.fetchall()]
 
 
-def get_herd_id_by_name(name: str) -> int | None:
-    """Case-insensitive herd lookup. Returns herd_id or None."""
+def get_herd_id_by_name(name: str) -> tuple[int, str] | tuple[None, None]:
+    """Case-insensitive herd lookup. Returns (herd_id, herd_name) or (None, None)."""
     conn = get_connection()
     with conn.cursor() as cur:
-        cur.execute("SELECT id FROM herds WHERE lower(name) = lower(%s)", (name,))
+        cur.execute("SELECT id, name FROM herds WHERE lower(name) = lower(%s)", (name,))
         row = cur.fetchone()
-        return row[0] if row else None
+        return (row[0], row[1]) if row else (None, None)
+
+
+def fuzzy_match_herd(name: str, threshold: float = 0.4) -> tuple[int, str] | tuple[None, None]:
+    """Fuzzy match a herd name. Returns (herd_id, herd_name) or (None, None).
+
+    First tries exact (case-insensitive) match, then falls back to
+    difflib fuzzy matching against all herd names.
+    """
+    from difflib import SequenceMatcher
+
+    # Try exact match first
+    herd_id, herd_name = get_herd_id_by_name(name)
+    if herd_id is not None:
+        return herd_id, herd_name
+
+    # Fuzzy match against all herds
+    conn = get_connection()
+    with conn.cursor() as cur:
+        cur.execute("SELECT id, name FROM herds ORDER BY name")
+        herds = cur.fetchall()
+
+    if not herds:
+        return None, None
+
+    query_lower = name.strip().lower()
+    best_score = 0.0
+    best_match = None
+
+    for herd_id, herd_name in herds:
+        # Also check substring containment (e.g. "pryor" matches "Pryor Mountains")
+        name_lower = herd_name.lower()
+        if query_lower in name_lower or name_lower in query_lower:
+            return herd_id, herd_name
+
+        score = SequenceMatcher(None, query_lower, name_lower).ratio()
+        if score > best_score:
+            best_score = score
+            best_match = (herd_id, herd_name)
+
+    if best_score >= threshold:
+        return best_match
+
+    return None, None
 
 
 def get_all_herd_names() -> list[str]:
