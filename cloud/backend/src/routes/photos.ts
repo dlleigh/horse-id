@@ -38,6 +38,17 @@ router.post("/:id/retry", async (req, res) => {
   res.json(updated);
 });
 
+// POST /api/photos/retry-all — reset all error photos to pending
+router.post("/retry-all", async (_req, res) => {
+  const result = await db
+    .update(photos)
+    .set({ processingStatus: "pending", detectionResult: null })
+    .where(eq(photos.processingStatus, "error"))
+    .returning({ id: photos.id });
+
+  res.json({ count: result.length });
+});
+
 // PATCH /api/photos/:id — toggle exclude/include
 router.patch("/:id", async (req, res) => {
   const photoId = Number(req.params.id);

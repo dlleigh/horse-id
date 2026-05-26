@@ -153,6 +153,10 @@ export async function retryPhoto(photoId: number): Promise<void> {
   await fetchJson(`${BASE}/photos/${photoId}/retry`, { method: 'POST' });
 }
 
+export async function retryAllPhotos(): Promise<{ count: number }> {
+  return fetchJson(`${BASE}/photos/retry-all`, { method: 'POST' });
+}
+
 export interface ConfusionEntry {
   horseId: number;
   horseName: string;

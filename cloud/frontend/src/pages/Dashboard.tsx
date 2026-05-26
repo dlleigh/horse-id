@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { getHerds, getStats, triggerSync, triggerProcessing, getErrorPhotos, retryPhoto, type Herd, type Stats, type ErrorPhoto } from '../api/client'
+import { getHerds, getStats, triggerSync, triggerProcessing, getErrorPhotos, retryPhoto, retryAllPhotos, type Herd, type Stats, type ErrorPhoto } from '../api/client'
 
 export default function Dashboard() {
   const [herds, setHerds] = useState<Herd[]>([])
@@ -190,9 +190,23 @@ export default function Dashboard() {
         <div className="mb-6 p-3 bg-red-50 border border-red-200 rounded-lg">
           <div className="flex items-center justify-between mb-2">
             <h3 className="text-sm font-medium text-red-800">Error Photos</h3>
-            <button onClick={() => setShowErrors(false)} className="text-red-400 hover:text-red-600 text-xs">
-              Hide
-            </button>
+            <div className="flex gap-3">
+              <button
+                onClick={async () => {
+                  if (!confirm(`Retry all ${errorPhotos.length} error photos?`)) return
+                  const { count } = await retryAllPhotos()
+                  setErrorPhotos([])
+                  setShowErrors(false)
+                  setStats(prev => prev ? { ...prev, error: 0, pending: prev.pending + count } : prev)
+                }}
+                className="text-red-600 hover:text-red-800 text-xs font-medium"
+              >
+                Retry All
+              </button>
+              <button onClick={() => setShowErrors(false)} className="text-red-400 hover:text-red-600 text-xs">
+                Hide
+              </button>
+            </div>
           </div>
           <table className="w-full text-sm">
             <thead>
