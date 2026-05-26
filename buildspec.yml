@@ -50,6 +50,11 @@ phases:
               echo "$CHANGED" | grep -q '^buildspec\.yml' && { BUILD_RESPONDER=true; BUILD_WORKER=true; BUILD_BACKEND=true; BUILD_FRONTEND=true; } || true
             fi
           fi
+      # Allow env var overrides (set FORCE_BUILD_WORKER=true in CodeBuild to force a rebuild)
+      - '[ "$FORCE_BUILD_WORKER" = "true" ] && BUILD_WORKER=true || true'
+      - '[ "$FORCE_BUILD_BACKEND" = "true" ] && BUILD_BACKEND=true || true'
+      - '[ "$FORCE_BUILD_FRONTEND" = "true" ] && BUILD_FRONTEND=true || true'
+      - '[ "$FORCE_BUILD_RESPONDER" = "true" ] && BUILD_RESPONDER=true || true'
       - echo "BUILD_RESPONDER=$BUILD_RESPONDER BUILD_WORKER=$BUILD_WORKER BUILD_BACKEND=$BUILD_BACKEND BUILD_FRONTEND=$BUILD_FRONTEND"
 
   build:
