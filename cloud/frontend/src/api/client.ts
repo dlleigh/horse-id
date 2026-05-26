@@ -205,6 +205,14 @@ export interface HorseSearchResult {
   herdName: string;
 }
 
+export async function moveHorse(horseId: number, herdId: number): Promise<{ success: boolean; herdId: number; herdName: string }> {
+  return fetchJson(`${BASE}/horses/${horseId}/move`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ herdId }),
+  });
+}
+
 export async function searchHorses(query: string): Promise<HorseSearchResult[]> {
   return fetchJson(`${BASE}/horses?q=${encodeURIComponent(query)}`);
 }

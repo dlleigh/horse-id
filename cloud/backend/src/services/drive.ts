@@ -10,7 +10,7 @@ export function getDriveClient(): drive_v3.Drive {
   const config = getConfig();
   const auth = new GoogleAuth({
     credentials: config.googleDriveServiceAccountKey as object,
-    scopes: ["https://www.googleapis.com/auth/drive.readonly"],
+    scopes: ["https://www.googleapis.com/auth/drive"],
   });
 
   _drive = drive({ version: "v3", auth });
@@ -110,6 +110,20 @@ export async function getChanges(pageToken: string): Promise<ChangesResult> {
   } while (currentToken);
 
   return { changes, newToken: currentToken };
+}
+
+export async function moveFolder(
+  folderId: string,
+  oldParentId: string,
+  newParentId: string
+): Promise<void> {
+  const drive = getDriveClient();
+  await drive.files.update({
+    fileId: folderId,
+    addParents: newParentId,
+    removeParents: oldParentId,
+    supportsAllDrives: true,
+  });
 }
 
 export async function listImageFiles(folderId: string): Promise<DriveFile[]> {
