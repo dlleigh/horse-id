@@ -17,7 +17,8 @@ export default function Benchmark() {
   const [selectedHerdId, setSelectedHerdId] = useState<string>('')
   const [testPct, setTestPct] = useState(20)
   const [minPhotos, setMinPhotos] = useState(0)
-  const [mode, setMode] = useState<'individual' | 'centroid'>('individual')
+  const [mode, setMode] = useState<'individual' | 'centroid' | 'topk'>('individual')
+  const [topK, setTopK] = useState(3)
   const [seedInput, setSeedInput] = useState('')
   const [result, setResult] = useState<BenchmarkResult | null>(null)
   const [loading, setLoading] = useState(false)
@@ -38,6 +39,7 @@ export default function Benchmark() {
         minPhotos || undefined,
         mode,
         seedInput ? Number(seedInput) : undefined,
+        mode === 'topk' ? topK : undefined,
       )
       setResult(r)
     } catch (e: unknown) {
@@ -111,14 +113,32 @@ export default function Benchmark() {
             </label>
             <select
               value={mode}
-              onChange={e => setMode(e.target.value as 'individual' | 'centroid')}
+              onChange={e => setMode(e.target.value as 'individual' | 'centroid' | 'topk')}
               className="border border-gray-300 rounded-md px-3 py-2 text-sm"
               disabled={loading}
             >
               <option value="individual">Individual (best photo)</option>
-              <option value="centroid">Centroid (averaged)</option>
+              <option value="topk">Top-K average</option>
+              <option value="centroid">Centroid (all averaged)</option>
             </select>
           </div>
+
+          {mode === 'topk' && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                K
+              </label>
+              <input
+                type="number"
+                min={1}
+                max={20}
+                value={topK}
+                onChange={e => setTopK(Number(e.target.value))}
+                className="border border-gray-300 rounded-md px-3 py-2 text-sm w-16"
+                disabled={loading}
+              />
+            </div>
+          )}
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -190,7 +210,7 @@ export default function Benchmark() {
               <span>Test photos: {result.testCount}</span>
               <span>Training photos: {result.trainingCount}</span>
               <span>Horses evaluated: {result.horsesEvaluated} / {result.horsesTotal}</span>
-              <span>Mode: {result.mode === 'centroid' ? 'Centroid' : 'Individual'}</span>
+              <span>Mode: {result.mode === 'centroid' ? 'Centroid' : result.mode === 'topk' ? `Top-${result.topK} average` : 'Individual'}</span>
               <span>Duration: {(result.durationMs / 1000).toFixed(1)}s</span>
               <span>Seed: {result.seed}</span>
             </div>

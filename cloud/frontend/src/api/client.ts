@@ -186,15 +186,16 @@ export interface BenchmarkResult {
   horsesTotal: number;
   durationMs: number;
   seed: number;
-  mode: 'individual' | 'centroid';
+  mode: 'individual' | 'centroid' | 'topk';
+  topK?: number;
   perHorseResults: BenchmarkPerHorse[];
 }
 
-export async function runBenchmark(herdId?: number, testFraction?: number, minPhotos?: number, mode?: 'individual' | 'centroid', seed?: number): Promise<BenchmarkResult> {
+export async function runBenchmark(herdId?: number, testFraction?: number, minPhotos?: number, mode?: 'individual' | 'centroid' | 'topk', seed?: number, topK?: number): Promise<BenchmarkResult> {
   return fetchJson(`${BASE}/benchmark`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ herdId, testFraction, minPhotos, mode, seed }),
+    body: JSON.stringify({ herdId, testFraction, minPhotos, mode, seed, topK }),
   });
 }
 
