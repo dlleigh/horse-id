@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { Link } from 'react-router-dom'
 import { getHerds, runBenchmark, type Herd, type BenchmarkResult } from '../api/client'
 
 function pct(n: number): string {
@@ -216,7 +217,9 @@ export default function Benchmark() {
                     const horseAcc = h.testPhotos > 0 ? h.rank1Correct / h.testPhotos : 0
                     return (
                       <tr key={h.horseId} className="border-b border-gray-100">
-                        <td className="py-2 font-medium text-gray-900">{h.horseName}</td>
+                        <td className="py-2 font-medium text-gray-900">
+                          <Link to={`/horses/${h.horseId}`} className="text-blue-600 hover:underline">{h.horseName}</Link>
+                        </td>
                         <td className="py-2 text-gray-600">{h.herdName}</td>
                         <td className="py-2 text-right text-gray-600">{h.trainingPhotos}</td>
                         <td className="py-2 text-right text-gray-600">{h.testPhotos}</td>
@@ -228,9 +231,13 @@ export default function Benchmark() {
                         </td>
                         <td className="py-2 pl-4 text-gray-600">
                           {h.confusedWith.length > 0
-                            ? h.confusedWith.map(c =>
-                                `${c.horseName} (${c.herdName})${c.count > 1 ? ` ×${c.count}` : ''}`
-                              ).join(', ')
+                            ? h.confusedWith.map((c, i) => (
+                                <span key={c.horseId}>
+                                  {i > 0 && ', '}
+                                  <Link to={`/horses/${c.horseId}`} className="text-blue-600 hover:underline">{c.horseName}</Link>
+                                  {' '}({c.herdName}){c.count > 1 ? ` ×${c.count}` : ''}
+                                </span>
+                              ))
                             : '—'}
                         </td>
                       </tr>
