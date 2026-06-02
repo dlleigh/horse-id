@@ -57,10 +57,16 @@ export async function runIncrementalSync(syncRunId: number): Promise<void> {
 
     console.log(`[sync] Found ${changes.length} changes`);
 
+    const config = getConfig();
+    const rootFolderId = config.googleDriveDirectoryId;
+
     // Separate folder changes from file changes
     const folderChanges: DriveChange[] = [];
     const fileChanges: DriveChange[] = [];
     for (const change of changes) {
+      // Skip the root folder itself — Changes API reports it when children change
+      if (change.fileId === rootFolderId) continue;
+
       if (change.mimeType === "application/vnd.google-apps.folder") {
         folderChanges.push(change);
       } else if (change.mimeType?.startsWith("image/")) {

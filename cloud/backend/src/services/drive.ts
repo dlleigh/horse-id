@@ -126,6 +126,44 @@ export async function moveFolder(
   });
 }
 
+export async function createFolder(
+  name: string,
+  parentId: string
+): Promise<string> {
+  const drive = getDriveClient();
+  const res = await drive.files.create({
+    requestBody: {
+      name,
+      mimeType: "application/vnd.google-apps.folder",
+      parents: [parentId],
+    },
+    fields: "id",
+    supportsAllDrives: true,
+  });
+  return res.data.id!;
+}
+
+export async function renameFolder(
+  folderId: string,
+  newName: string
+): Promise<void> {
+  const drive = getDriveClient();
+  await drive.files.update({
+    fileId: folderId,
+    requestBody: { name: newName },
+    supportsAllDrives: true,
+  });
+}
+
+export async function trashFolder(folderId: string): Promise<void> {
+  const drive = getDriveClient();
+  await drive.files.update({
+    fileId: folderId,
+    requestBody: { trashed: true },
+    supportsAllDrives: true,
+  });
+}
+
 export async function listImageFiles(folderId: string): Promise<DriveFile[]> {
   const drive = getDriveClient();
   const files: DriveFile[] = [];

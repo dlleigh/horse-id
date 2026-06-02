@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { getHerds, getStats, triggerSync, triggerProcessing, getErrorPhotos, retryPhoto, retryAllPhotos, type Herd, type Stats, type ErrorPhoto } from '../api/client'
+import { getHerds, getStats, triggerSync, triggerProcessing, getErrorPhotos, retryPhoto, retryAllPhotos, createHerd, renameHerd, deleteHerd, type Herd, type Stats, type ErrorPhoto } from '../api/client'
 
 export default function Dashboard() {
   const [herds, setHerds] = useState<Herd[]>([])
@@ -10,6 +10,16 @@ export default function Dashboard() {
   const [errorPhotos, setErrorPhotos] = useState<ErrorPhoto[]>([])
   const [showErrors, setShowErrors] = useState(false)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  // Herd management state
+  const [showAddForm, setShowAddForm] = useState(false)
+  const [newHerdName, setNewHerdName] = useState('')
+  const [addingHerd, setAddingHerd] = useState(false)
+  const [menuOpenId, setMenuOpenId] = useState<number | null>(null)
+  const [renamingId, setRenamingId] = useState<number | null>(null)
+  const [renameValue, setRenameValue] = useState('')
+  const addInputRef = useRef<HTMLInputElement>(null)
+  const renameInputRef = useRef<HTMLInputElement>(null)
 
   // Fetch initial data
   useEffect(() => {
@@ -50,6 +60,22 @@ export default function Dashboard() {
     }
   }, [stats])
 
+  // Focus inputs when they appear
+  useEffect(() => {
+    if (showAddForm) addInputRef.current?.focus()
+  }, [showAddForm])
+  useEffect(() => {
+    if (renamingId !== null) renameInputRef.current?.focus()
+  }, [renamingId])
+
+  // Close menu on outside click
+  useEffect(() => {
+    if (menuOpenId === null) return
+    const handler = () => setMenuOpenId(null)
+    document.addEventListener('click', handler)
+    return () => document.removeEventListener('click', handler)
+  }, [menuOpenId])
+
   async function handleSync(mode?: 'full' | 'incremental') {
     setError('')
     try {
@@ -72,8 +98,54 @@ export default function Dashboard() {
     }
   }
 
+  async function handleAddHerd(e: React.FormEvent) {
+    e.preventDefault()
+    if (!newHerdName.trim() || addingHerd) return
+    setAddingHerd(true)
+    setError('')
+    try {
+      const herd = await createHerd(newHerdName.trim())
+      setHerds(prev => [...prev, herd].sort((a, b) => a.name.localeCompare(b.name)))
+      setNewHerdName('')
+      setShowAddForm(false)
+    } catch (e: any) {
+      setError(e.message)
+    } finally {
+      setAddingHerd(false)
+    }
+  }
+
+  async function handleRename(herdId: number) {
+    if (!renameValue.trim()) {
+      setRenamingId(null)
+      return
+    }
+    setError('')
+    try {
+      const { name } = await renameHerd(herdId, renameValue.trim())
+      setHerds(prev =>
+        prev.map(h => h.id === herdId ? { ...h, name } : h)
+          .sort((a, b) => a.name.localeCompare(b.name))
+      )
+    } catch (e: any) {
+      setError(e.message)
+    } finally {
+      setRenamingId(null)
+    }
+  }
+
+  async function handleDelete(herd: Herd) {
+    if (!confirm(`Delete herd "${herd.name}"? This cannot be undone.`)) return
+    setError('')
+    try {
+      await deleteHerd(herd.id)
+      setHerds(prev => prev.filter(h => h.id !== herd.id))
+    } catch (e: any) {
+      setError(e.message)
+    }
+  }
+
   if (loading) return <p className="text-gray-500">Loading...</p>
-  if (error) return <p className="text-red-600">{error}</p>
 
   const totalHorses = herds.reduce((sum, h) => sum + Number(h.horseCount), 0)
   const isProcessing = stats ? (stats.pending + stats.detecting + stats.detected + stats.extracting) > 0 : false
@@ -89,6 +161,12 @@ export default function Dashboard() {
           </p>
         </div>
         <div className="flex gap-2">
+          <button
+            onClick={() => { setShowAddForm(true); setMenuOpenId(null) }}
+            className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
+          >
+            + Add Herd
+          </button>
           {isProcessing && stats?.syncStatus !== 'running' && (
             <button
               onClick={handleProcess}
@@ -113,6 +191,41 @@ export default function Dashboard() {
           </button>
         </div>
       </div>
+
+      {error && (
+        <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
+          {error}
+          <button onClick={() => setError('')} className="ml-2 text-red-400 hover:text-red-600">dismiss</button>
+        </div>
+      )}
+
+      {showAddForm && (
+        <form onSubmit={handleAddHerd} className="mb-4 flex gap-2">
+          <input
+            ref={addInputRef}
+            type="text"
+            value={newHerdName}
+            onChange={e => setNewHerdName(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Escape') setShowAddForm(false) }}
+            placeholder="New herd name..."
+            className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"
+          />
+          <button
+            type="submit"
+            disabled={addingHerd || !newHerdName.trim()}
+            className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50"
+          >
+            {addingHerd ? 'Creating...' : 'Create'}
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowAddForm(false)}
+            className="px-4 py-2 text-gray-600 hover:text-gray-800"
+          >
+            Cancel
+          </button>
+        </form>
+      )}
 
       {stats && stats.total > 0 && (
         <div className="mb-6 p-3 bg-gray-50 border border-gray-200 rounded-lg">
@@ -247,16 +360,74 @@ export default function Dashboard() {
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         {herds.map(herd => (
-          <Link
-            key={herd.id}
-            to={`/herds/${herd.id}`}
-            className="block p-5 bg-white rounded-lg border border-gray-200 hover:border-blue-300 hover:shadow-sm transition-all"
-          >
-            <h2 className="text-lg font-medium text-gray-900">{herd.name}</h2>
-            <p className="text-sm text-gray-500 mt-1">
-              {herd.horseCount} horses, {herd.photoCount} photos
-            </p>
-          </Link>
+          <div key={herd.id} className="relative">
+            <Link
+              to={`/herds/${herd.id}`}
+              className="block p-5 bg-white rounded-lg border border-gray-200 hover:border-blue-300 hover:shadow-sm transition-all"
+            >
+              {renamingId === herd.id ? (
+                <input
+                  ref={renameInputRef}
+                  type="text"
+                  value={renameValue}
+                  onChange={e => setRenameValue(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') { e.preventDefault(); handleRename(herd.id) }
+                    if (e.key === 'Escape') setRenamingId(null)
+                  }}
+                  onBlur={() => handleRename(herd.id)}
+                  onClick={e => e.preventDefault()}
+                  className="text-lg font-medium text-gray-900 w-full border-b border-blue-400 focus:outline-none bg-transparent"
+                />
+              ) : (
+                <h2 className="text-lg font-medium text-gray-900">{herd.name}</h2>
+              )}
+              <p className="text-sm text-gray-500 mt-1">
+                {herd.horseCount} horses, {herd.photoCount} photos
+              </p>
+            </Link>
+            {/* Kebab menu */}
+            <div className="absolute top-3 right-3">
+              <button
+                onClick={e => {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  setMenuOpenId(menuOpenId === herd.id ? null : herd.id)
+                }}
+                className="p-1 text-gray-400 hover:text-gray-700 rounded"
+              >
+                ···
+              </button>
+              {menuOpenId === herd.id && (
+                <div
+                  className="absolute right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg py-1 z-10 min-w-[120px]"
+                  onClick={e => e.stopPropagation()}
+                >
+                  <button
+                    onClick={e => {
+                      e.preventDefault()
+                      setRenamingId(herd.id)
+                      setRenameValue(herd.name)
+                      setMenuOpenId(null)
+                    }}
+                    className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                  >
+                    Rename
+                  </button>
+                  <button
+                    onClick={e => {
+                      e.preventDefault()
+                      setMenuOpenId(null)
+                      handleDelete(herd)
+                    }}
+                    className="block w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50"
+                  >
+                    Delete
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
         ))}
       </div>
     </div>

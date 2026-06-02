@@ -218,6 +218,26 @@ export async function searchHorses(query: string): Promise<HorseSearchResult[]> 
   return fetchJson(`${BASE}/horses?q=${encodeURIComponent(query)}`);
 }
 
+export async function createHerd(name: string): Promise<Herd> {
+  return fetchJson(`${BASE}/herds`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  });
+}
+
+export async function renameHerd(herdId: number, name: string): Promise<{ id: number; name: string }> {
+  return fetchJson(`${BASE}/herds/${herdId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  });
+}
+
+export async function deleteHerd(herdId: number): Promise<{ success: boolean }> {
+  return fetchJson(`${BASE}/herds/${herdId}`, { method: 'DELETE' });
+}
+
 export async function triggerReExtract(): Promise<{ status: string; deleted: number; reset: number }> {
   return fetchJson(`${BASE}/process/re-extract`, { method: 'POST' });
 }
